@@ -35,6 +35,43 @@ UPLOAD_DIR.mkdir(exist_ok=True)
 # Global storage for current PDF
 current_pdf = {"path": None, "num_pages": 0, "filename": None}
 
+# State file to persist PDF info across restarts
+STATE_FILE = UPLOAD_DIR / ".current_pdf.txt"
+
+
+def load_current_pdf_state():
+    """Load the current PDF state from disk if it exists."""
+    if STATE_FILE.exists():
+        try:
+            with open(STATE_FILE, 'r') as f:
+                filename = f.read().strip()
+                if filename:
+                    pdf_path = UPLOAD_DIR / filename
+                    if pdf_path.exists():
+                        with open(pdf_path, 'rb') as pdf_file:
+                            pdf_reader = PyPDF2.PdfReader(pdf_file)
+                            num_pages = len(pdf_reader.pages)
+                        
+                        current_pdf["path"] = str(pdf_path)
+                        current_pdf["num_pages"] = num_pages
+                        current_pdf["filename"] = filename
+                        print(f"Restored PDF state: {filename} ({num_pages} pages)")
+        except Exception as e:
+            print(f"Error loading PDF state: {e}")
+
+
+def save_current_pdf_state():
+    """Save the current PDF filename to disk."""
+    try:
+        with open(STATE_FILE, 'w') as f:
+            f.write(current_pdf["filename"] or "")
+    except Exception as e:
+        print(f"Error saving PDF state: {e}")
+
+
+# Load PDF state on startup
+load_current_pdf_state()
+
 
 class SummarizeRequest(BaseModel):
     page_number: int
@@ -95,6 +132,9 @@ async def upload_pdf(file: UploadFile = File(...)):
         current_pdf["path"] = str(file_path)
         current_pdf["num_pages"] = num_pages
         current_pdf["filename"] = file.filename
+        
+        # Save state to disk for persistence across restarts
+        save_current_pdf_state()
         
         return JSONResponse(content={
             "message": "PDF uploaded successfully",
