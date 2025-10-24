@@ -44,7 +44,13 @@ function DocumentSidebar({ selectedDoc, onSelect }) {
               title={`${doc.filename} (${doc.num_pages} pages)`}
             >
               <span className="doc-name">{doc.filename}</span>
+              {doc.chat_count > 0 && (
+                <span className="doc-chat-badge" title={`${doc.chat_count} messages`}>{doc.chat_count}</span>
+              )}
               <span className="doc-pages">{doc.num_pages} pages</span>
+              {doc.last_chat_at && (
+                <div className="doc-chat-time">{new Date(doc.last_chat_at).toLocaleString()}</div>
+              )}
               <button className="doc-remove" title="Remove document" onClick={e => handleDelete(doc.filename, e)}>
                 ×
               </button>

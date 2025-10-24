@@ -39,19 +39,84 @@ const ChatPanel = forwardRef(({ currentPage, highlights = [], onJumpToHighlight,
     scrollToBottom();
   }, [messages]);
 
+  // Load persisted chat for the current filename
+  useEffect(() => {
+    let cancelled = false;
+    const loadChats = async () => {
+      if (!filename) {
+        setMessages([]);
+        return;
+      }
+      try {
+        const res = await axios.get(`${API_URL}/api/chats`, { params: { filename } });
+        if (!cancelled) {
+          setMessages(res.data?.messages || []);
+        }
+      } catch (err) {
+        console.warn('Failed to load chats for', filename, err);
+        if (!cancelled) setMessages([]);
+      }
+    };
+    loadChats();
+    return () => { cancelled = true; };
+  }, [filename]);
+
+  // helper to create client-side id for optimistic messages
+  const makeClientId = () => `${Date.now()}-${Math.random().toString(36).slice(2,9)}`;
+
+  const replaceMessageByClientId = (clientId, serverMsg) => {
+    setMessages(prev => prev.map(m => (m.clientId && m.clientId === clientId) ? serverMsg : m));
+  };
+
   const handleSummarize = async () => {
     setLoading(true);
     
     // Add user message
-    const userMessage = { role: 'user', content: `Summarize page ${currentPage}` };
+    const clientId = makeClientId();
+    const userMessage = { role: 'user', content: `Summarize page ${currentPage}`, clientId };
     setMessages(prev => [...prev, userMessage]);
+    // persist user message (include client_id so server echoes it back)
+    let serverUserMsg = null;
+    if (filename) {
+      try {
+        const form = new FormData();
+        form.append('filename', filename);
+        form.append('role', userMessage.role);
+        form.append('content', userMessage.content);
+        form.append('client_id', clientId);
+        const res = await axios.post(`${API_URL}/api/chats`, form);
+        serverUserMsg = res.data?.message;
+        if (serverUserMsg) replaceMessageByClientId(clientId, serverUserMsg);
+      } catch (err) {
+        console.warn('Failed to persist user summarize message', err);
+      }
+    }
 
     try {
       const response = await axios.post(`${API_URL}/api/summarize`, {
         page_number: currentPage,
       });
 
-      setMessages(prev => [...prev, response.data]);
+      const assistantMsg = response.data;
+      // append assistant message locally with a temp clientId so we can replace it with server version
+      const assistantClientId = makeClientId();
+      const localAssistant = { ...(assistantMsg || {}), clientId: assistantClientId };
+      setMessages(prev => [...prev, localAssistant]);
+      // persist assistant message and replace local copy with server-returned message
+      if (filename) {
+        try {
+          const form = new FormData();
+          form.append('filename', filename);
+          form.append('role', localAssistant.role || 'assistant');
+          form.append('content', localAssistant.content || '');
+          form.append('client_id', assistantClientId);
+          const res = await axios.post(`${API_URL}/api/chats`, form);
+          const serverAssistant = res.data?.message;
+          if (serverAssistant) replaceMessageByClientId(assistantClientId, serverAssistant);
+        } catch (err) {
+          console.warn('Failed to persist assistant summarize message', err);
+        }
+      }
     } catch (error) {
       console.error('Summarize error:', error);
       setMessages(prev => [...prev, {
@@ -69,8 +134,24 @@ const ChatPanel = forwardRef(({ currentPage, highlights = [], onJumpToHighlight,
     setLoading(true);
     
     // Add user message
-    const userMessage = { role: 'user', content: inputValue };
+    const clientId = makeClientId();
+    const userMessage = { role: 'user', content: inputValue, clientId };
     setMessages(prev => [...prev, userMessage]);
+    // persist user message
+    if (filename) {
+      try {
+        const form = new FormData();
+        form.append('filename', filename);
+        form.append('role', userMessage.role);
+        form.append('content', userMessage.content);
+        form.append('client_id', clientId);
+        const res = await axios.post(`${API_URL}/api/chats`, form);
+        const serverUserMsg = res.data?.message;
+        if (serverUserMsg) replaceMessageByClientId(clientId, serverUserMsg);
+      } catch (err) {
+        console.warn('Failed to persist user analyze message', err);
+      }
+    }
     setInputValue('');
 
     try {
@@ -79,7 +160,24 @@ const ChatPanel = forwardRef(({ currentPage, highlights = [], onJumpToHighlight,
         question: inputValue,
       });
 
-      setMessages(prev => [...prev, response.data]);
+      const assistantMsg = response.data;
+      const assistantClientId = makeClientId();
+      const localAssistant = { ...(assistantMsg || {}), clientId: assistantClientId };
+      setMessages(prev => [...prev, localAssistant]);
+      if (filename) {
+        try {
+          const form = new FormData();
+          form.append('filename', filename);
+          form.append('role', localAssistant.role || 'assistant');
+          form.append('content', localAssistant.content || '');
+          form.append('client_id', assistantClientId);
+          const res = await axios.post(`${API_URL}/api/chats`, form);
+          const serverAssistant = res.data?.message;
+          if (serverAssistant) replaceMessageByClientId(assistantClientId, serverAssistant);
+        } catch (err) {
+          console.warn('Failed to persist assistant analyze message', err);
+        }
+      }
     } catch (error) {
       console.error('Analyze error:', error);
       setMessages(prev => [...prev, {
@@ -99,7 +197,11 @@ const ChatPanel = forwardRef(({ currentPage, highlights = [], onJumpToHighlight,
   };
 
   const handleResetChat = () => {
+    // clear local state and server-side chat for this file
     setMessages([]);
+    if (filename) {
+      axios.delete(`${API_URL}/api/chats`, { params: { filename } }).catch(err => console.warn('Failed to clear chats', err));
+    }
   };
 
   // Export chat messages + notes as PDF
@@ -110,8 +212,8 @@ const ChatPanel = forwardRef(({ currentPage, highlights = [], onJumpToHighlight,
       if (filename) {
         // Use a relative path so the request goes to the same origin / proxy as other frontend calls
         // (avoids mismatches between absolute API_URL and the dev server proxy or container host).
-        try {
-          const res = await axios.get(`/api/notes`, { params: { filename } });
+          try {
+          const res = await axios.get(`${API_URL}/api/notes`, { params: { filename } });
           notesPayload = res.data?.notes || {};
         } catch (err) {
           console.warn('Failed to fetch notes for export:', err);
@@ -241,7 +343,24 @@ const ChatPanel = forwardRef(({ currentPage, highlights = [], onJumpToHighlight,
       content: `${operationLabels[operation]}: "${text.substring(0, 100)}${text.length > 100 ? '...' : ''}"`,
       highlightId: highlightId || undefined,
     };
-    setMessages(prev => [...prev, userMessage]);
+    const clientId = makeClientId();
+    const userMsgWithId = { ...userMessage, clientId };
+    setMessages(prev => [...prev, userMsgWithId]);
+    if (filename) {
+      try {
+        const form = new FormData();
+        form.append('filename', filename);
+        form.append('role', userMsgWithId.role);
+        form.append('content', userMsgWithId.content);
+        if (highlightId) form.append('highlightId', highlightId);
+        form.append('client_id', clientId);
+        const res = await axios.post(`${API_URL}/api/chats`, form);
+        const serverUser = res.data?.message;
+        if (serverUser) replaceMessageByClientId(clientId, serverUser);
+      } catch (err) {
+        console.warn('Failed to persist user text-operation message', err);
+      }
+    }
 
     try {
       const response = await axios.post(`${API_URL}/api/text-operation`, {
@@ -253,7 +372,24 @@ const ChatPanel = forwardRef(({ currentPage, highlights = [], onJumpToHighlight,
       // attach highlightId to assistant response if present
       const resp = response.data;
       if (highlightId) resp.highlightId = highlightId;
-      setMessages(prev => [...prev, resp]);
+      const assistantClientId = makeClientId();
+      const localResp = { ...resp, clientId: assistantClientId };
+      setMessages(prev => [...prev, localResp]);
+      if (filename) {
+        try {
+          const form = new FormData();
+          form.append('filename', filename);
+          form.append('role', localResp.role || 'assistant');
+          form.append('content', localResp.content || '');
+          if (localResp.highlightId) form.append('highlightId', localResp.highlightId);
+          form.append('client_id', assistantClientId);
+          const res2 = await axios.post(`${API_URL}/api/chats`, form);
+          const serverAssistant = res2.data?.message;
+          if (serverAssistant) replaceMessageByClientId(assistantClientId, serverAssistant);
+        } catch (err) {
+          console.warn('Failed to persist assistant text-operation message', err);
+        }
+      }
     } catch (error) {
       console.error('Text operation error:', error);
       setMessages(prev => [...prev, {
@@ -322,6 +458,9 @@ const ChatPanel = forwardRef(({ currentPage, highlights = [], onJumpToHighlight,
                 >
                   {message.content}
                 </ReactMarkdown>
+                {message.timestamp && (
+                  <div className="message-timestamp">{new Date(message.timestamp).toLocaleString()}</div>
+                )}
               </div>
               {message.highlightId && (
                 <div className="message-badge" onClick={() => onJumpToHighlight && onJumpToHighlight(message.highlightId)} title="Jump to highlight">

@@ -7,6 +7,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 import PyPDF2
+import json
+import uuid
+from datetime import datetime
 from openai import OpenAI
 from dotenv import load_dotenv
 
@@ -102,10 +105,31 @@ async def list_uploaded_pdfs():
             with open(file, 'rb') as pdf_file:
                 pdf_reader = PyPDF2.PdfReader(pdf_file)
                 num_pages = len(pdf_reader.pages)
+            # compute chat metadata if present
+            chat_file = NOTES_DIR / f"{file.name}.chat.json"
+            chat_count = 0
+            last_chat_at = None
+            if chat_file.exists():
+                try:
+                    with open(chat_file, 'r') as cf:
+                        chats = json.load(cf)
+                    chat_count = len(chats)
+                    # find latest timestamp among messages
+                    try:
+                        timestamps = [m.get('timestamp') for m in chats if m.get('timestamp')]
+                        if timestamps:
+                            last_chat_at = max(timestamps)
+                    except Exception:
+                        last_chat_at = None
+                except Exception:
+                    chat_count = 0
+
             docs.append({
                 "filename": file.name,
                 "num_pages": num_pages,
-                "uploaded_at": stat.st_mtime
+                "uploaded_at": stat.st_mtime,
+                "chat_count": chat_count,
+                "last_chat_at": last_chat_at,
             })
         except Exception:
             continue
@@ -153,6 +177,11 @@ def notes_file_for(filename: str) -> Path:
     return NOTES_DIR / f"{filename}.notes.json"
 
 
+def chats_file_for(filename: str) -> Path:
+    """Return the path to the chat file for a given filename."""
+    return NOTES_DIR / f"{filename}.chat.json"
+
+
 @app.get("/api/notes")
 async def get_notes(filename: str = Query(...)):
     """Return all notes for a given PDF filename as a mapping page -> note object."""
@@ -166,6 +195,25 @@ async def get_notes(filename: str = Query(...)):
         return JSONResponse(content={"notes": data})
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error reading notes: {str(e)}")
+
+
+@app.get("/api/chats")
+async def get_chats(filename: str = Query(...)):
+    """Return the chat messages for a given PDF filename as an array of message objects."""
+    file = chats_file_for(filename)
+    if not file.exists():
+        return JSONResponse(content={"messages": []})
+    try:
+        with open(file, 'r') as f:
+            data = json.load(f)
+        # ensure messages are sorted by timestamp
+        try:
+            data.sort(key=lambda m: m.get('timestamp', ''))
+        except Exception:
+            pass
+        return JSONResponse(content={"messages": data})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error reading chats: {str(e)}")
 
 
 @app.post("/api/notes")
@@ -209,6 +257,47 @@ async def save_note(
         raise HTTPException(status_code=500, detail=f"Error saving note: {str(e)}")
 
 
+@app.post("/api/chats")
+async def append_chat_message(
+    filename: str = Form(...),
+    role: str = Form(...),
+    content: str = Form(...),
+    highlightId: Optional[str] = Form(None),
+    client_id: Optional[str] = Form(None),
+):
+    """Append a single chat message to the chat history for `filename`.
+    Messages are stored as a JSON array in `uploads/notes/{filename}.chat.json`.
+    """
+    file = chats_file_for(filename)
+    try:
+        messages = []
+        if file.exists():
+            with open(file, 'r') as f:
+                messages = json.load(f)
+
+        # build message with id and timestamp
+        now_iso = datetime.utcnow().isoformat() + 'Z'
+        msg = {
+            "id": str(uuid.uuid4()),
+            "role": role,
+            "content": content,
+            "timestamp": now_iso,
+        }
+        if highlightId is not None:
+            msg["highlightId"] = highlightId
+        if client_id is not None:
+            # echo back client-provided id so clients can match optimistic messages
+            msg["client_id"] = client_id
+
+        messages.append(msg)
+        with open(file, 'w') as f:
+            json.dump(messages, f)
+
+        return JSONResponse(content={"ok": True, "message": msg})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error appending chat message: {str(e)}")
+
+
 @app.delete("/api/notes")
 async def delete_note(filename: str = Query(...), page: int = Query(...)):
     """Delete a note for a given page and filename."""
@@ -225,6 +314,19 @@ async def delete_note(filename: str = Query(...), page: int = Query(...)):
         return JSONResponse(content={"ok": True})
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error deleting note: {str(e)}")
+
+
+@app.delete("/api/chats")
+async def delete_chats(filename: str = Query(...)):
+    """Delete the chat history file for a specific filename (clears chat)."""
+    file = chats_file_for(filename)
+    if not file.exists():
+        return JSONResponse(content={"ok": True})
+    try:
+        file.unlink()
+        return JSONResponse(content={"ok": True})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error deleting chats: {str(e)}")
 
 
 @app.get("/")
