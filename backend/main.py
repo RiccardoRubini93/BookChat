@@ -169,8 +169,18 @@ async def get_notes(filename: str = Query(...)):
 
 
 @app.post("/api/notes")
-async def save_note(filename: str = Form(...), page: int = Form(...), text: str = Form(''), x: float = Form(85.0), y: float = Form(10.0)):
-    """Save a single page note for filename. Overwrites the page entry."""
+async def save_note(
+    filename: str = Form(...),
+    page: int = Form(...),
+    text: str = Form(''),
+    x: float = Form(85.0),
+    y: float = Form(10.0),
+    widthPercent: Optional[float] = Form(None),
+    heightPercent: Optional[float] = Form(None),
+):
+    """Save a single page note for filename. Overwrites the page entry.
+    Accepts optional widthPercent/heightPercent to persist editor sizing.
+    """
     file = notes_file_for(filename)
     try:
         import json
@@ -178,7 +188,20 @@ async def save_note(filename: str = Form(...), page: int = Form(...), text: str 
         if file.exists():
             with open(file, 'r') as f:
                 notes = json.load(f)
-        notes[str(page)] = {"text": text, "x": float(x), "y": float(y)}
+        # build note object and include optional sizing if provided
+        note_obj = {"text": text, "x": float(x), "y": float(y)}
+        if widthPercent is not None:
+            try:
+                note_obj["widthPercent"] = float(widthPercent)
+            except Exception:
+                pass
+        if heightPercent is not None:
+            try:
+                note_obj["heightPercent"] = float(heightPercent)
+            except Exception:
+                pass
+
+        notes[str(page)] = note_obj
         with open(file, 'w') as f:
             json.dump(notes, f)
         return JSONResponse(content={"ok": True, "note": notes[str(page)]})

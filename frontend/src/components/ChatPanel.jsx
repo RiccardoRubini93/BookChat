@@ -7,6 +7,8 @@ import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
 import './ChatPanel.css';
 import { jsPDF } from 'jspdf';
+import html2canvas from 'html2canvas';
+import ReactDOM from 'react-dom/client';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -103,66 +105,120 @@ const ChatPanel = forwardRef(({ currentPage, highlights = [], onJumpToHighlight,
   // Export chat messages + notes as PDF
   const handleExportPdf = async () => {
     try {
-      // fetch notes for this file (server returns { notes: { page: {text,x,y,...} } })
+      // Fetch notes for this file
       let notesPayload = {};
       if (filename) {
-        const res = await axios.get(`${API_URL}/api/notes`, { params: { filename } });
-        notesPayload = res.data?.notes || {};
-      }
-
-      const doc = new jsPDF({ unit: 'pt', format: 'a4' });
-      const margin = 40;
-      const pageWidth = doc.internal.pageSize.getWidth();
-      const usableWidth = pageWidth - margin * 2;
-      let y = margin;
-
-      const title = `Chat & Notes Export${filename ? ' — ' + filename : ''}`;
-      doc.setFontSize(14);
-      doc.text(title, margin, y);
-      y += 20;
-      doc.setFontSize(10);
-      doc.text(`Exported: ${new Date().toLocaleString()}`, margin, y);
-      y += 24;
-
-      // Chat section
-      doc.setFontSize(12);
-      doc.text('Chat Messages:', margin, y);
-      y += 16;
-      doc.setFontSize(10);
-
-      for (let i = 0; i < messages.length; i++) {
-        const m = messages[i];
-        const prefix = m.role === 'user' ? 'User: ' : 'Assistant: ';
-        const lines = doc.splitTextToSize(prefix + (m.content || ''), usableWidth);
-        for (let j = 0; j < lines.length; j++) {
-          if (y > doc.internal.pageSize.getHeight() - margin) { doc.addPage(); y = margin; }
-          doc.text(lines[j], margin, y);
-          y += 14;
+        // Use a relative path so the request goes to the same origin / proxy as other frontend calls
+        // (avoids mismatches between absolute API_URL and the dev server proxy or container host).
+        try {
+          const res = await axios.get(`/api/notes`, { params: { filename } });
+          notesPayload = res.data?.notes || {};
+        } catch (err) {
+          console.warn('Failed to fetch notes for export:', err);
+          notesPayload = {};
         }
-        y += 6;
       }
 
-      // Notes section
-      if (Object.keys(notesPayload).length > 0) {
-        if (y > doc.internal.pageSize.getHeight() - margin - 60) { doc.addPage(); y = margin; }
-        y += 6;
-        doc.setFontSize(12);
-        doc.text('Notes:', margin, y);
-        y += 16;
-        doc.setFontSize(10);
-        Object.entries(notesPayload).forEach(([page, note]) => {
-          const header = `Page ${page}:`;
-          const headerLines = doc.splitTextToSize(header, usableWidth);
-          headerLines.forEach(hline => { if (y > doc.internal.pageSize.getHeight() - margin) { doc.addPage(); y = margin; } doc.text(hline, margin, y); y += 14; });
-          const textLines = doc.splitTextToSize(note.text || '', usableWidth);
-          textLines.forEach(tline => { if (y > doc.internal.pageSize.getHeight() - margin) { doc.addPage(); y = margin; } doc.text(tline, margin + 10, y); y += 12; });
-          y += 6;
-        });
+      // Create an off-screen container and render the export HTML using React so Markdown + KaTeX render correctly
+      const container = document.createElement('div');
+      container.style.width = '800px';
+      container.style.padding = '24px';
+      container.style.background = 'white';
+      container.style.color = '#222';
+      container.style.fontFamily = 'Arial, Helvetica, sans-serif';
+      container.style.boxSizing = 'border-box';
+      container.style.lineHeight = '1.4';
+      container.style.fontSize = '12px';
+      container.style.position = 'fixed';
+      container.style.left = '-10000px';
+      container.style.top = '0';
+      document.body.appendChild(container);
+
+      // Render React content into container
+      const root = ReactDOM.createRoot(container);
+      const ExportContent = () => (
+        <div style={{ width: '100%' }}>
+          <h2 style={{ margin: '0 0 8px 0' }}>{`Chat & Notes Export${filename ? ' — ' + filename : ''}`}</h2>
+          <div style={{ fontSize: '10px', color: '#666', marginBottom: 12 }}>{`Exported: ${new Date().toLocaleString()}`}</div>
+
+          <h3 style={{ fontSize: '14px', margin: '18px 0 8px' }}>Chat</h3>
+          <div>
+            {messages.map((m, idx) => (
+              <div key={idx} style={{ marginBottom: 8 }}>
+                <div style={{ fontSize: '11px', fontWeight: 600, color: m.role === 'user' ? '#0b5ed7' : '#333' }}>{m.role === 'user' ? 'User' : 'Assistant'}</div>
+                <div style={{ marginTop: 4 }}>
+                  <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>{m.content}</ReactMarkdown>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <h3 style={{ fontSize: '14px', margin: '18px 0 8px' }}>Notes</h3>
+          <div>
+            {Object.entries(notesPayload).length === 0 ? (
+              <div style={{ color: '#666' }}>No notes available.</div>
+            ) : (
+              Object.entries(notesPayload).map(([page, note]) => (
+                <div key={page} style={{ marginBottom: 12 }}>
+                  <div style={{ fontWeight: 700, marginBottom: 4 }}>Page {page}</div>
+                  <div style={{ marginLeft: 6 }}>
+                    <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>{note.text || ''}</ReactMarkdown>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      );
+
+      root.render(<ExportContent />);
+
+      // Wait a bit for KaTeX/math to render
+      await new Promise(res => setTimeout(res, 600));
+
+      // Capture with html2canvas at 2x scale for better quality
+      const canvas = await html2canvas(container, { scale: 2, useCORS: true });
+      const imgData = canvas.toDataURL('image/png');
+
+      // Create PDF with jsPDF and add image, split into pages if necessary
+      const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+
+      // Calculate image dims (canvas is in px; convert to points roughly by 0.75 factor if needed)
+      const imgProps = { width: canvas.width, height: canvas.height };
+      const ratio = imgProps.width / imgProps.height;
+      const pdfWidth = pageWidth - 40; // margin 20 left/right
+      const pdfHeight = pdfWidth / ratio;
+
+      let remainingHeight = imgProps.height;
+      let offsetY = 0;
+      const pxPerPt = canvas.width / pdfWidth; // pixels per pdf pt
+
+      while (remainingHeight > 0) {
+        const sY = offsetY;
+        const sH = Math.min(imgProps.height - offsetY, Math.floor(pageHeight * pxPerPt - 40 * pxPerPt));
+        // create temporary canvas slice
+        const tmpCanvas = document.createElement('canvas');
+        tmpCanvas.width = imgProps.width;
+        tmpCanvas.height = sH;
+        const tCtx = tmpCanvas.getContext('2d');
+        tCtx.drawImage(canvas, 0, sY, imgProps.width, sH, 0, 0, imgProps.width, sH);
+        const tmpData = tmpCanvas.toDataURL('image/png');
+
+        if (offsetY > 0) doc.addPage();
+        doc.addImage(tmpData, 'PNG', 20, 20, pdfWidth, (sH / pxPerPt) );
+
+        offsetY += sH;
+        remainingHeight -= sH;
       }
 
-      // Finish and save
       const fileBase = filename ? filename.replace(/\.[^/.]+$/, '') : 'bookchat_export';
       doc.save(`${fileBase}-chat-notes.pdf`);
+
+      // cleanup
+      try { root.unmount(); } catch (err) {}
+      document.body.removeChild(container);
     } catch (err) {
       console.error('Export PDF failed', err);
       alert('Failed to export PDF. See console for details.');
