@@ -82,6 +82,7 @@ function App() {
                 ref={chatPanelRef}
                 currentPage={currentPage} 
                 highlights={highlights}
+                filename={pdfInfo?.filename}
                 onJumpToHighlight={(id) => pdfViewerRef.current?.scrollToHighlight(id)}
               />
             </div>

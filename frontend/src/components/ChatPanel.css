@@ -25,6 +25,17 @@
   align-items: center;
   gap: 10px;
 }
+.header-actions button.export-button {
+  margin-left: 8px;
+  padding: 6px 10px;
+  font-size: 0.85rem;
+  border-radius: 6px;
+  border: none;
+  background: #2b8a3e;
+  color: white;
+  cursor: pointer;
+}
+.header-actions button.export-button:hover { filter: brightness(0.95); }
 
 .current-page-badge {
   background: #007bff;

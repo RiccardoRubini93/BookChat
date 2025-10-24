@@ -6,19 +6,31 @@ import remarkGfm from 'remark-gfm';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
 import './ChatPanel.css';
+import { jsPDF } from 'jspdf';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
-const ChatPanel = forwardRef(({ currentPage, highlights = [], onJumpToHighlight }, ref) => {
+const ChatPanel = forwardRef(({ currentPage, highlights = [], onJumpToHighlight, filename }, ref) => {
   const [messages, setMessages] = useState([]);
   const messageRefs = useRef([]);
+  const messagesContainerRef = useRef(null);
   const [inputValue, setInputValue] = useState('');
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState('ask'); // 'summarize' or 'ask'
   const messagesEndRef = useRef(null);
 
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const container = messagesContainerRef.current;
+    try {
+      if (container) {
+        container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
+      } else {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      }
+    } catch (err) {
+      // fallback
+      messagesEndRef.current?.scrollIntoView();
+    }
   };
 
   useEffect(() => {
@@ -88,6 +100,75 @@ const ChatPanel = forwardRef(({ currentPage, highlights = [], onJumpToHighlight 
     setMessages([]);
   };
 
+  // Export chat messages + notes as PDF
+  const handleExportPdf = async () => {
+    try {
+      // fetch notes for this file (server returns { notes: { page: {text,x,y,...} } })
+      let notesPayload = {};
+      if (filename) {
+        const res = await axios.get(`${API_URL}/api/notes`, { params: { filename } });
+        notesPayload = res.data?.notes || {};
+      }
+
+      const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+      const margin = 40;
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const usableWidth = pageWidth - margin * 2;
+      let y = margin;
+
+      const title = `Chat & Notes Export${filename ? ' — ' + filename : ''}`;
+      doc.setFontSize(14);
+      doc.text(title, margin, y);
+      y += 20;
+      doc.setFontSize(10);
+      doc.text(`Exported: ${new Date().toLocaleString()}`, margin, y);
+      y += 24;
+
+      // Chat section
+      doc.setFontSize(12);
+      doc.text('Chat Messages:', margin, y);
+      y += 16;
+      doc.setFontSize(10);
+
+      for (let i = 0; i < messages.length; i++) {
+        const m = messages[i];
+        const prefix = m.role === 'user' ? 'User: ' : 'Assistant: ';
+        const lines = doc.splitTextToSize(prefix + (m.content || ''), usableWidth);
+        for (let j = 0; j < lines.length; j++) {
+          if (y > doc.internal.pageSize.getHeight() - margin) { doc.addPage(); y = margin; }
+          doc.text(lines[j], margin, y);
+          y += 14;
+        }
+        y += 6;
+      }
+
+      // Notes section
+      if (Object.keys(notesPayload).length > 0) {
+        if (y > doc.internal.pageSize.getHeight() - margin - 60) { doc.addPage(); y = margin; }
+        y += 6;
+        doc.setFontSize(12);
+        doc.text('Notes:', margin, y);
+        y += 16;
+        doc.setFontSize(10);
+        Object.entries(notesPayload).forEach(([page, note]) => {
+          const header = `Page ${page}:`;
+          const headerLines = doc.splitTextToSize(header, usableWidth);
+          headerLines.forEach(hline => { if (y > doc.internal.pageSize.getHeight() - margin) { doc.addPage(); y = margin; } doc.text(hline, margin, y); y += 14; });
+          const textLines = doc.splitTextToSize(note.text || '', usableWidth);
+          textLines.forEach(tline => { if (y > doc.internal.pageSize.getHeight() - margin) { doc.addPage(); y = margin; } doc.text(tline, margin + 10, y); y += 12; });
+          y += 6;
+        });
+      }
+
+      // Finish and save
+      const fileBase = filename ? filename.replace(/\.[^/.]+$/, '') : 'bookchat_export';
+      doc.save(`${fileBase}-chat-notes.pdf`);
+    } catch (err) {
+      console.error('Export PDF failed', err);
+      alert('Failed to export PDF. See console for details.');
+    }
+  };
+
   // accept optional highlightId when invoked from PDFViewer
   const handleTextOperationInternal = async (operation, text, highlightId = null) => {
     setLoading(true);
@@ -147,6 +228,13 @@ const ChatPanel = forwardRef(({ currentPage, highlights = [], onJumpToHighlight 
         <h3>💬 Chat</h3>
         <div className="header-actions">
           <span className="current-page-badge">Page {currentPage}</span>
+          <button
+            onClick={handleExportPdf}
+            className="export-button"
+            title="Export chat and notes to PDF"
+          >
+            ⤓ Export PDF
+          </button>
           {messages.length > 0 && (
             <button 
               onClick={handleResetChat}
@@ -159,7 +247,7 @@ const ChatPanel = forwardRef(({ currentPage, highlights = [], onJumpToHighlight 
         </div>
       </div>
 
-      <div className="chat-messages">
+  <div className="chat-messages" ref={messagesContainerRef}>
         {messages.length === 0 ? (
           <div className="empty-state">
             <p>👋 Start a conversation!</p>
