@@ -252,6 +252,14 @@
   gap: 12px;
 }
 
+.message-badge {
+  margin-top: 6px;
+  font-size: 0.85rem;
+  color: #0b5ed7;
+  cursor: pointer;
+  user-select: none;
+}
+
 .action-button {
   width: 100%;
   padding: 12px;

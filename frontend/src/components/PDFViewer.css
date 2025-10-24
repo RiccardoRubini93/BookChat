@@ -46,6 +46,32 @@
   height: auto !important;
 }
 
+/* Ensure the text layer sits above the canvas so inline highlights can show on top */
+.react-pdf__Page {
+  position: relative;
+}
+.react-pdf__Page__canvas {
+  position: relative;
+  z-index: 1;
+}
+.react-pdf__Page__textContent {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
+  /* allow pointer events so users can select text in the text layer */
+  pointer-events: auto;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.react-pdf__Page__textContent span {
+  /* text layer spans are normally used for selection; keep their text transparent so the canvas text remains visible underneath */
+  color: transparent;
+  pointer-events: auto;
+}
+
 .loading,
 .error {
   padding: 40px;
@@ -136,4 +162,30 @@
 
 .text-context-menu button:hover {
   background: #f0f0f0;
+}
+
+/* Inline highlight applied to text in the PDF text layer */
+.pdf-highlight-inline {
+  /* lighter, semi-transparent highlight so the canvas text underneath remains readable */
+  background-color: rgba(255, 235, 59, 0.35) !important;
+  display: inline;
+  padding: 0 1px;
+  border-radius: 2px;
+  line-height: 1.2;
+  cursor: pointer;
+  pointer-events: auto;
+  /* blend mode can help the highlight feel more natural over printed text */
+  mix-blend-mode: multiply;
+}
+
+/* Small badge list of highlights (metadata) */
+.pdf-highlights {
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.pdf-highlight {
+  font-size: 0.8rem;
 }

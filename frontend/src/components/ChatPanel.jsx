@@ -9,8 +9,9 @@ import './ChatPanel.css';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
-const ChatPanel = forwardRef(({ currentPage }, ref) => {
+const ChatPanel = forwardRef(({ currentPage, highlights = [], onJumpToHighlight }, ref) => {
   const [messages, setMessages] = useState([]);
+  const messageRefs = useRef([]);
   const [inputValue, setInputValue] = useState('');
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState('ask'); // 'summarize' or 'ask'
@@ -87,7 +88,8 @@ const ChatPanel = forwardRef(({ currentPage }, ref) => {
     setMessages([]);
   };
 
-  const handleTextOperationInternal = async (operation, text) => {
+  // accept optional highlightId when invoked from PDFViewer
+  const handleTextOperationInternal = async (operation, text, highlightId = null) => {
     setLoading(true);
     
     // Add user message showing what operation was requested
@@ -99,7 +101,8 @@ const ChatPanel = forwardRef(({ currentPage }, ref) => {
     
     const userMessage = { 
       role: 'user', 
-      content: `${operationLabels[operation]}: "${text.substring(0, 100)}${text.length > 100 ? '...' : ''}"` 
+      content: `${operationLabels[operation]}: "${text.substring(0, 100)}${text.length > 100 ? '...' : ''}"`,
+      highlightId: highlightId || undefined,
     };
     setMessages(prev => [...prev, userMessage]);
 
@@ -107,9 +110,13 @@ const ChatPanel = forwardRef(({ currentPage }, ref) => {
       const response = await axios.post(`${API_URL}/api/text-operation`, {
         operation: operation,
         text: text,
+        highlight_id: highlightId,
       });
 
-      setMessages(prev => [...prev, response.data]);
+      // attach highlightId to assistant response if present
+      const resp = response.data;
+      if (highlightId) resp.highlightId = highlightId;
+      setMessages(prev => [...prev, resp]);
     } catch (error) {
       console.error('Text operation error:', error);
       setMessages(prev => [...prev, {
@@ -123,7 +130,15 @@ const ChatPanel = forwardRef(({ currentPage }, ref) => {
 
   // Expose the handleTextOperation method to parent component
   useImperativeHandle(ref, () => ({
-    handleTextOperation: handleTextOperationInternal
+    handleTextOperation: handleTextOperationInternal,
+    openMessagesForHighlight: (highlightId) => {
+      // find first message with matching highlightId
+      const idx = messages.findIndex(m => m.highlightId === highlightId);
+      if (idx >= 0) {
+        const el = messageRefs.current[idx];
+        if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }
   }));
 
   return (
@@ -155,7 +170,7 @@ const ChatPanel = forwardRef(({ currentPage }, ref) => {
           </div>
         ) : (
           messages.map((message, index) => (
-            <div key={index} className={`message ${message.role}`}>
+            <div key={index} className={`message ${message.role}`} ref={el => messageRefs.current[index] = el}>
               <div className="message-content">
                 <ReactMarkdown
                   remarkPlugins={[remarkMath, remarkGfm]}
@@ -164,6 +179,11 @@ const ChatPanel = forwardRef(({ currentPage }, ref) => {
                   {message.content}
                 </ReactMarkdown>
               </div>
+              {message.highlightId && (
+                <div className="message-badge" onClick={() => onJumpToHighlight && onJumpToHighlight(message.highlightId)} title="Jump to highlight">
+                  🔗 Highlight
+                </div>
+              )}
             </div>
           ))
         )}

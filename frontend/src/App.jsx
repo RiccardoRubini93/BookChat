@@ -14,6 +14,8 @@ function App() {
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedDoc, setSelectedDoc] = useState(null);
   const chatPanelRef = useRef(null);
+  const pdfViewerRef = useRef(null);
+  const [highlights, setHighlights] = useState([]);
 
   const handleFileUpload = (pdfUrl, info) => {
     setPdfFile(pdfUrl);
@@ -22,9 +24,9 @@ function App() {
     setSelectedDoc(info.filename);
   };
 
-  const handleTextOperation = (operation, text) => {
+  const handleTextOperation = (operation, text, highlightId = null) => {
     if (chatPanelRef.current) {
-      chatPanelRef.current.handleTextOperation(operation, text);
+      chatPanelRef.current.handleTextOperation(operation, text, highlightId);
     }
   };
 
@@ -65,12 +67,22 @@ function App() {
                 totalPages={pdfInfo?.num_pages || 1}
                 onPageChange={setCurrentPage}
                 onTextOperation={handleTextOperation}
+                onHighlightClick={(h) => {
+                  // when a highlight is clicked, forward to chat panel to focus messages
+                  if (chatPanelRef.current && chatPanelRef.current.openMessagesForHighlight) {
+                    chatPanelRef.current.openMessagesForHighlight(h.id);
+                  }
+                }}
+                onHighlightCreated={(h) => setHighlights(prev => [...prev, h])}
+                ref={pdfViewerRef}
               />
             </div>
             <div className="chat-section">
               <ChatPanel 
                 ref={chatPanelRef}
                 currentPage={currentPage} 
+                highlights={highlights}
+                onJumpToHighlight={(id) => pdfViewerRef.current?.scrollToHighlight(id)}
               />
             </div>
           </>
