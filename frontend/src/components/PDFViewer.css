@@ -205,7 +205,7 @@
   user-select: none;
   /* ensure touch devices allow dragging without the page panning */
   touch-action: none;
-  font-size: 18px;
+  font-size: 14px;
 }
 .note-bubble:active { cursor: grabbing; }
 
@@ -232,20 +232,67 @@
   padding: 8px;
   border-radius: 6px;
   border: 1px solid #e0e0e0;
-  font-size: 0.95rem;
+  font-size: 0.78rem;
 }
 .note-editor-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
+  gap: 6px;
+  flex-wrap: wrap;
+  width: 100%;
 }
 .note-editor-actions button {
-  padding: 8px 12px;
+  padding: 5px 8px;
   border: none;
-  border-radius: 8px;
+  border-radius: 6px;
   cursor: pointer;
   background: #007bff;
   color: white;
+  font-size: 0.75rem;
+  line-height: 1;
+  min-width: 56px;
 }
 .note-editor-actions button:hover { filter: brightness(0.95); }
 .note-editor-actions button[style*="red"] { background: #ff5252; }
+
+/* smaller title in the editor */
+.note-editor-title {
+  font-size: 0.75rem;
+  color: #444;
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+
+/* smaller placeholder text */
+.note-editor textarea::placeholder {
+  font-size: 0.72rem;
+  color: #777;
+}
+
+/* Editor resizer handles */
+.editor-resizer {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  background: rgba(0,0,0,0.12);
+  border-radius: 3px;
+  z-index: 9;
+}
+.editor-resizer:hover { background: rgba(0,0,0,0.18); }
+.editor-resizer-right {
+  right: -6px;
+  top: 50%;
+  transform: translateY(-50%);
+  cursor: ew-resize;
+}
+.editor-resizer-bottom {
+  bottom: -6px;
+  left: 50%;
+  transform: translateX(-50%);
+  cursor: ns-resize;
+}
+.editor-resizer-corner {
+  right: -6px;
+  bottom: -6px;
+  cursor: nwse-resize;
+}

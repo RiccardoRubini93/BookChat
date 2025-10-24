@@ -58,8 +58,11 @@ function PDFViewer({ file, filename, currentPage, totalPages, onPageChange, onTe
       form.append('filename', filename);
       form.append('page', String(page));
       form.append('text', note.text || '');
-      form.append('x', String(note.x ?? 85));
-      form.append('y', String(note.y ?? 10));
+  form.append('x', String(note.x ?? 85));
+  form.append('y', String(note.y ?? 10));
+  // include optional sizing for editor popup
+  if (note.widthPercent !== undefined) form.append('widthPercent', String(note.widthPercent));
+  if (note.heightPercent !== undefined) form.append('heightPercent', String(note.heightPercent));
       const res = await fetch('/api/notes', { method: 'POST', body: form });
       if (!res.ok) throw new Error('Failed to save note');
       return true;
@@ -242,6 +245,62 @@ function PDFViewer({ file, filename, currentPage, totalPages, onPageChange, onTe
     setEditingPage(null);
   };
 
+  // Resizing the note editor popup
+  const editorResizingRef = useRef(null);
+  const EDITOR_MIN_PX = 160;
+  const EDITOR_MIN_HEIGHT_PX = 80;
+
+  const onEditorResizePointerDown = (e, mode, page) => {
+    // mode: 'right' | 'bottom' | 'corner'
+    e.stopPropagation();
+    try { e.preventDefault(); } catch (err) {}
+    const wrapper = pageWrapperRef.current;
+    if (!wrapper) return;
+    const rect = wrapper.getBoundingClientRect();
+    const clientX = (e.clientX !== undefined) ? e.clientX : (e.touches && e.touches[0]?.clientX) || 0;
+    const clientY = (e.clientY !== undefined) ? e.clientY : (e.touches && e.touches[0]?.clientY) || 0;
+    const note = notes[page] || {};
+    const startW = note.widthPercent ?? (320 / rect.width) * 100;
+    const startH = note.heightPercent ?? (160 / rect.height) * 100;
+    editorResizingRef.current = { page, rect, startX: clientX, startY: clientY, mode, startW, startH };
+    window.addEventListener('pointermove', onEditorResizePointerMove);
+    window.addEventListener('pointerup', onEditorResizePointerUp);
+    try { e.target && e.target.setPointerCapture && e.target.setPointerCapture(e.pointerId); } catch (err) {}
+  };
+
+  const onEditorResizePointerMove = (e) => {
+    if (!editorResizingRef.current) return;
+    const { page, rect: startRect, startX, startY, mode, startW, startH } = editorResizingRef.current;
+    const clientX = (e.clientX !== undefined) ? e.clientX : (e.touches && e.touches[0]?.clientX) || 0;
+    const clientY = (e.clientY !== undefined) ? e.clientY : (e.touches && e.touches[0]?.clientY) || 0;
+    const wrapper = pageWrapperRef.current;
+    const rect = wrapper ? wrapper.getBoundingClientRect() : startRect;
+
+    const dx = clientX - startX;
+    const dy = clientY - startY;
+    let newW = startW;
+    let newH = startH;
+    if (mode === 'right' || mode === 'corner') {
+      newW = Math.max((EDITOR_MIN_PX / rect.width) * 100, startW + (dx / rect.width) * 100);
+    }
+    if (mode === 'bottom' || mode === 'corner') {
+      newH = Math.max((EDITOR_MIN_HEIGHT_PX / rect.height) * 100, startH + (dy / rect.height) * 100);
+    }
+    setNotes(prev => ({ ...prev, [page]: { ...(prev[page] || {}), widthPercent: newW, heightPercent: newH } }));
+    editorResizingRef.current.rect = rect;
+  };
+
+  const onEditorResizePointerUp = (e) => {
+    if (!editorResizingRef.current) return;
+    const { page } = editorResizingRef.current;
+    const note = notes[page];
+    if (note) saveNoteToServer(page, note);
+    try { e.target && e.target.releasePointerCapture && e.target.releasePointerCapture(e.pointerId); } catch (err) {}
+    editorResizingRef.current = null;
+    window.removeEventListener('pointermove', onEditorResizePointerMove);
+    window.removeEventListener('pointerup', onEditorResizePointerUp);
+  };
+
   // Dragging the bubble to reposition it on the page (pointer events, mouse + touch)
   const draggingRef = useRef(null);
 
@@ -398,20 +457,41 @@ function PDFViewer({ file, filename, currentPage, totalPages, onPageChange, onTe
                 📝
               </div>
               {/* Note editor popup */}
-              {editing && editingPage === currentPage && (
-                <div className="note-editor" onClick={(e) => e.stopPropagation()} style={{ left: `${currentNote.x}%`, top: `${currentNote.y + 8}%`, transform: 'translate(-50%, 0)' }}>
-                  <textarea
-                    value={editingText}
-                    onChange={(e) => setEditingText(e.target.value)}
-                    placeholder={`Notes for page ${currentPage}`}
-                  />
-                  <div className="note-editor-actions">
-                    <button onClick={() => saveNote(currentPage, editingText, notes[currentPage])}>Save</button>
-                    <button onClick={() => { setEditing(false); setEditingPage(null); }}>Close</button>
-                    <button onClick={() => deleteNote(currentPage)} style={{ color: 'red' }}>Delete</button>
+              {editing && editingPage === currentPage && (() => {
+                // compute editor size in px from percent if available
+                const wrapperRect = pageWrapperRef.current ? pageWrapperRef.current.getBoundingClientRect() : null;
+                const widthPx = wrapperRect && notes[currentPage]?.widthPercent ? Math.max(160, (notes[currentPage].widthPercent / 100) * wrapperRect.width) : 320;
+                const heightPx = wrapperRect && notes[currentPage]?.heightPercent ? Math.max(120, (notes[currentPage].heightPercent / 100) * wrapperRect.height) : 160;
+                const editorStyle = {
+                  left: `${currentNote.x}%`,
+                  top: `${currentNote.y + 8}%`,
+                  transform: 'translate(-50%, 0)',
+                  width: `${Math.round(widthPx)}px`,
+                  minWidth: '140px',
+                  height: `${Math.round(heightPx)}px`,
+                };
+
+                return (
+                  <div className="note-editor" onClick={(e) => e.stopPropagation()} style={editorStyle}>
+                    <div className="note-editor-title">Notes for page {currentPage}</div>
+                    <textarea
+                      value={editingText}
+                      onChange={(e) => setEditingText(e.target.value)}
+                      placeholder={`Notes for page ${currentPage}`}
+                      style={{ height: '100%', resize: 'none' }}
+                    />
+                    <div className="note-editor-actions">
+                      <button onClick={() => saveNote(currentPage, editingText, notes[currentPage])}>Save</button>
+                      <button onClick={() => { setEditing(false); setEditingPage(null); }}>Close</button>
+                      <button onClick={() => deleteNote(currentPage)} style={{ color: 'red' }}>Delete</button>
+                    </div>
+                    {/* resizer handles */}
+                    <div className="editor-resizer editor-resizer-right" onPointerDown={(e) => onEditorResizePointerDown(e, 'right', currentPage)} />
+                    <div className="editor-resizer editor-resizer-bottom" onPointerDown={(e) => onEditorResizePointerDown(e, 'bottom', currentPage)} />
+                    <div className="editor-resizer editor-resizer-corner" onPointerDown={(e) => onEditorResizePointerDown(e, 'corner', currentPage)} />
                   </div>
-                </div>
-              )}
+                );
+              })()}
 
               {/* Render highlights for current page */}
               <div className="pdf-highlights">
