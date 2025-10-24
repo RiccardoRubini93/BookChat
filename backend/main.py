@@ -2,7 +2,7 @@ import os
 import shutil
 from pathlib import Path
 from typing import Optional
-from fastapi import FastAPI, File, UploadFile, HTTPException, Form
+from fastapi import FastAPI, File, UploadFile, HTTPException, Form, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -72,6 +72,44 @@ def save_current_pdf_state():
 # Load PDF state on startup
 load_current_pdf_state()
 
+
+@app.delete("/api/docs")
+async def delete_pdf(filename: str = Query(...)):
+    """Delete a PDF file from uploads."""
+    file_path = UPLOAD_DIR / filename
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(status_code=404, detail="File not found")
+    try:
+        file_path.unlink()
+        # If deleted file is current, clear state
+        if current_pdf["filename"] == filename:
+            current_pdf["path"] = None
+            current_pdf["num_pages"] = 0
+            current_pdf["filename"] = None
+            save_current_pdf_state()
+        return {"message": "File deleted"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error deleting file: {str(e)}")
+@app.get("/api/docs")
+async def list_uploaded_pdfs():
+    """List all uploaded PDF files with metadata."""
+    docs = []
+    for file in UPLOAD_DIR.glob("*.pdf"):
+        try:
+            stat = file.stat()
+            with open(file, 'rb') as pdf_file:
+                pdf_reader = PyPDF2.PdfReader(pdf_file)
+                num_pages = len(pdf_reader.pages)
+            docs.append({
+                "filename": file.name,
+                "num_pages": num_pages,
+                "uploaded_at": stat.st_mtime
+            })
+        except Exception:
+            continue
+    # Sort by upload time, newest first
+    docs.sort(key=lambda d: d["uploaded_at"], reverse=True)
+    return {"docs": docs}
 
 class SummarizeRequest(BaseModel):
     page_number: int
@@ -152,24 +190,50 @@ async def upload_pdf(file: UploadFile = File(...)):
 
 
 @app.get("/api/pdf/info")
-async def get_pdf_info():
-    """Get information about the currently loaded PDF."""
-    if not current_pdf["path"]:
-        raise HTTPException(status_code=404, detail="No PDF loaded")
-    
+
+@app.get("/api/pdf/info")
+async def get_pdf_info(filename: Optional[str] = Query(None)):
+    """Get information about a specific PDF, or the currently loaded one if not specified."""
+    pdf_path = None
+    pdf_filename = None
+    num_pages = 0
+    if filename:
+        file_path = UPLOAD_DIR / filename
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail="PDF not found")
+        pdf_path = str(file_path)
+        pdf_filename = filename
+        with open(file_path, 'rb') as pdf_file:
+            pdf_reader = PyPDF2.PdfReader(pdf_file)
+            num_pages = len(pdf_reader.pages)
+    else:
+        if not current_pdf["path"]:
+            raise HTTPException(status_code=404, detail="No PDF loaded")
+        pdf_path = current_pdf["path"]
+        pdf_filename = current_pdf["filename"]
+        num_pages = current_pdf["num_pages"]
     return JSONResponse(content={
-        "filename": current_pdf["filename"],
-        "num_pages": current_pdf["num_pages"]
+        "filename": pdf_filename,
+        "num_pages": num_pages
     })
 
 
 @app.get("/api/pdf/file")
-async def get_pdf_file():
-    """Serve the currently loaded PDF file."""
+@app.get("/api/pdf/file")
+async def get_pdf_file(filename: Optional[str] = Query(None)):
+    """Serve a specific PDF file, or the currently loaded one if not specified."""
+    from fastapi.responses import FileResponse
+    if filename:
+        file_path = UPLOAD_DIR / filename
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail="PDF not found")
+        return FileResponse(
+            str(file_path),
+            media_type="application/pdf",
+            filename=filename
+        )
     if not current_pdf["path"]:
         raise HTTPException(status_code=404, detail="No PDF loaded")
-    
-    from fastapi.responses import FileResponse
     return FileResponse(
         current_pdf["path"],
         media_type="application/pdf",

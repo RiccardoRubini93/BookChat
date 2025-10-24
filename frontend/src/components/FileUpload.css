@@ -4,6 +4,8 @@
   align-items: center;
   min-height: 100vh;
   padding: 20px;
+  width: 100%;
+  height: 100%;
 }
 
 .upload-card {
@@ -14,6 +16,7 @@
   max-width: 500px;
   width: 100%;
   text-align: center;
+  margin: auto;
 }
 
 .upload-card h1 {

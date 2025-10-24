@@ -1,0 +1,87 @@
+.document-sidebar {
+  width: 220px;
+  background: #f4f6fa;
+  border-right: 1px solid #e0e0e0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  padding: 0 0 0 0;
+  box-sizing: border-box;
+}
+
+.sidebar-title {
+  padding: 20px 16px 10px 16px;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #333;
+  border-bottom: 1px solid #e0e0e0;
+  background: #f8f9fa;
+}
+
+.doc-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  flex: 1;
+  overflow-y: auto;
+}
+
+.doc-item {
+  display: flex;
+  flex-direction: column;
+  padding: 14px 16px;
+  cursor: pointer;
+  border-bottom: 1px solid #eaeaea;
+  transition: background 0.2s;
+  position: relative;
+}
+
+.doc-remove {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  background: none;
+  border: none;
+  color: #888;
+  font-size: 1.1em;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  opacity: 0.7;
+  transition: color 0.2s, opacity 0.2s;
+}
+
+.doc-remove:hover {
+  color: #d32f2f;
+  opacity: 1;
+}
+
+.doc-item.selected {
+  background: #e0e7ff;
+  font-weight: 600;
+}
+
+.doc-item:hover {
+  background: #e8f0fe;
+}
+
+.doc-name {
+  font-size: 1rem;
+  color: #222;
+  margin-bottom: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.doc-pages {
+  font-size: 0.85rem;
+  color: #666;
+}
+
+.empty {
+  padding: 20px;
+  color: #aaa;
+  text-align: center;
+}
