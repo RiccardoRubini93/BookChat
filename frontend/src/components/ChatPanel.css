@@ -20,6 +20,12 @@
   font-weight: 500;
 }
 
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .current-page-badge {
   background: #007bff;
   color: white;
@@ -27,6 +33,25 @@
   border-radius: 12px;
   font-size: 0.85rem;
   font-weight: 500;
+}
+
+.reset-button {
+  background: #dc3545;
+  color: white;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.3s;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.reset-button:hover {
+  background: #c82333;
 }
 
 .chat-messages {

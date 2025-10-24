@@ -78,11 +78,26 @@ function ChatPanel({ currentPage }) {
     }
   };
 
+  const handleResetChat = () => {
+    setMessages([]);
+  };
+
   return (
     <div className="chat-panel">
       <div className="chat-header">
         <h3>💬 Chat</h3>
-        <span className="current-page-badge">Page {currentPage}</span>
+        <div className="header-actions">
+          <span className="current-page-badge">Page {currentPage}</span>
+          {messages.length > 0 && (
+            <button 
+              onClick={handleResetChat}
+              className="reset-button"
+              title="Clear chat history"
+            >
+              🗑️ Reset
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="chat-messages">
