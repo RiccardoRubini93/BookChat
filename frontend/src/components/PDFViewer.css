@@ -3,6 +3,7 @@
   flex-direction: column;
   height: 100%;
   background-color: #f8f9fa;
+  position: relative;
 }
 
 .pdf-header {
@@ -89,4 +90,50 @@
 .page-info {
   color: #666;
   font-weight: 500;
+}
+
+.text-context-menu {
+  position: fixed;
+  background: white;
+  border: 1px solid #e0e0e0;
+  border-radius: 12px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+  padding: 8px;
+  z-index: 1000;
+  display: flex;
+  flex-direction: row;
+  gap: 6px;
+  transform: translateX(-50%);
+  animation: fadeIn 0.2s ease-in;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+.text-context-menu button {
+  padding: 10px 16px;
+  background: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  text-align: center;
+  transition: background 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.text-context-menu button:hover {
+  background: #f0f0f0;
 }

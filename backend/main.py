@@ -82,6 +82,11 @@ class AnalyzeRequest(BaseModel):
     question: str
 
 
+class TextOperationRequest(BaseModel):
+    operation: str  # 'summarize', 'rephrase', or 'explain'
+    text: str
+
+
 class MessageResponse(BaseModel):
     role: str
     content: str
@@ -276,6 +281,62 @@ async def analyze_page(request: AnalyzeRequest):
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generating analysis: {str(e)}")
+
+
+@app.post("/api/text-operation")
+async def text_operation(request: TextOperationRequest):
+    """Perform an operation (summarize, rephrase, explain) on selected text using OpenAI."""
+    try:
+        if not request.text.strip():
+            return JSONResponse(content={
+                "role": "assistant",
+                "content": "No text provided."
+            })
+        
+        # Define system prompts for each operation
+        system_prompts = {
+            "summarize": "You are a helpful assistant that provides clear and concise summaries. Focus on the main points and key ideas.",
+            "rephrase": "You are a helpful assistant that rephrases text in a clearer, more accessible way while maintaining the original meaning. Make it easier to understand.",
+            "explain": "You are a helpful assistant that explains complex concepts in simple terms. Break down difficult ideas and provide context and examples when helpful."
+        }
+        
+        user_prompts = {
+            "summarize": f"Please provide a concise summary of the following text:\n\n{request.text}",
+            "rephrase": f"Please rephrase the following text in a clearer, more accessible way:\n\n{request.text}",
+            "explain": f"Please explain the following text in simple terms:\n\n{request.text}"
+        }
+        
+        operation = request.operation.lower()
+        if operation not in system_prompts:
+            raise HTTPException(status_code=400, detail=f"Invalid operation: {operation}")
+        
+        # Call OpenAI API
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {
+                    "role": "system",
+                    "content": system_prompts[operation]
+                },
+                {
+                    "role": "user",
+                    "content": user_prompts[operation]
+                }
+            ],
+            temperature=0.7,
+            max_tokens=500
+        )
+        
+        result = response.choices[0].message.content
+        
+        return JSONResponse(content={
+            "role": "assistant",
+            "content": result,
+            "operation": operation
+        })
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error performing text operation: {str(e)}")
 
 
 if __name__ == "__main__":

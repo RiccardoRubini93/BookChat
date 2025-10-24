@@ -1,10 +1,10 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, forwardRef, useImperativeHandle } from 'react';
 import axios from 'axios';
 import './ChatPanel.css';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
-function ChatPanel({ currentPage }) {
+const ChatPanel = forwardRef(({ currentPage }, ref) => {
   const [messages, setMessages] = useState([]);
   const [inputValue, setInputValue] = useState('');
   const [loading, setLoading] = useState(false);
@@ -82,6 +82,45 @@ function ChatPanel({ currentPage }) {
     setMessages([]);
   };
 
+  const handleTextOperationInternal = async (operation, text) => {
+    setLoading(true);
+    
+    // Add user message showing what operation was requested
+    const operationLabels = {
+      summarize: '📝 Summarize',
+      rephrase: '✍️ Rephrase',
+      explain: '💡 Explain'
+    };
+    
+    const userMessage = { 
+      role: 'user', 
+      content: `${operationLabels[operation]}: "${text.substring(0, 100)}${text.length > 100 ? '...' : ''}"` 
+    };
+    setMessages(prev => [...prev, userMessage]);
+
+    try {
+      const response = await axios.post(`${API_URL}/api/text-operation`, {
+        operation: operation,
+        text: text,
+      });
+
+      setMessages(prev => [...prev, response.data]);
+    } catch (error) {
+      console.error('Text operation error:', error);
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: 'Sorry, I encountered an error while processing the text.',
+      }]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Expose the handleTextOperation method to parent component
+  useImperativeHandle(ref, () => ({
+    handleTextOperation: handleTextOperationInternal
+  }));
+
   return (
     <div className="chat-panel">
       <div className="chat-header">
@@ -158,6 +197,8 @@ function ChatPanel({ currentPage }) {
       </div>
     </div>
   );
-}
+});
+
+ChatPanel.displayName = 'ChatPanel';
 
 export default ChatPanel;
