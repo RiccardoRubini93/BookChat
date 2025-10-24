@@ -242,49 +242,80 @@ function PDFViewer({ file, filename, currentPage, totalPages, onPageChange, onTe
     setEditingPage(null);
   };
 
-  // Dragging the bubble to reposition it on the page
+  // Dragging the bubble to reposition it on the page (pointer events, mouse + touch)
   const draggingRef = useRef(null);
-  const onBubbleMouseDown = (e, page) => {
+
+  const onBubblePointerDown = (e, page) => {
     e.stopPropagation();
+    // prevent default to avoid text selection or page panning on touch
+    try { e.preventDefault(); } catch (err) { /* ignore */ }
+    // prefer pointer events for unified mouse/touch support
     const wrapper = pageWrapperRef.current;
     if (!wrapper) return;
     const rect = wrapper.getBoundingClientRect();
-    draggingRef.current = { page, rect, startX: e.clientX, startY: e.clientY };
-    window.addEventListener('mousemove', onBubbleMouseMove);
-    window.addEventListener('mouseup', onBubbleMouseUp);
+    const clientX = (e.clientX !== undefined) ? e.clientX : (e.touches && e.touches[0]?.clientX) || 0;
+    const clientY = (e.clientY !== undefined) ? e.clientY : (e.touches && e.touches[0]?.clientY) || 0;
+    draggingRef.current = { page, rect, startX: clientX, startY: clientY, moved: false, pointerId: e.pointerId };
+
+    // set up global listeners to follow pointer outside the element
+    window.addEventListener('pointermove', onBubblePointerMove);
+    window.addEventListener('pointerup', onBubblePointerUp);
+
+    // try to capture the pointer to the element so we receive events reliably
+    try { e.target && e.target.setPointerCapture && e.target.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
   };
 
-  const onBubbleMouseMove = (e) => {
+  const onBubblePointerMove = (e) => {
     if (!draggingRef.current) return;
-    const { page, rect, startX, startY } = draggingRef.current;
-    const dx = e.clientX - startX;
-    const dy = e.clientY - startY;
-    // compute new center in percent
-    const prev = notes[page] || { x: 85, y: 10 };
-    // convert prev percent to px
-    const prevPxX = rect.left + (prev.x / 100) * rect.width;
-    const prevPxY = rect.top + (prev.y / 100) * rect.height;
-    const newPxX = prevPxX + dx;
-    const newPxY = prevPxY + dy;
-    const newX = Math.max(2, Math.min(98, ((newPxX - rect.left) / rect.width) * 100));
-    const newY = Math.max(2, Math.min(98, ((newPxY - rect.top) / rect.height) * 100));
+    const { page, startX, startY } = draggingRef.current;
+    const clientX = (e.clientX !== undefined) ? e.clientX : (e.touches && e.touches[0]?.clientX) || 0;
+    const clientY = (e.clientY !== undefined) ? e.clientY : (e.touches && e.touches[0]?.clientY) || 0;
+    const dx = clientX - startX;
+    const dy = clientY - startY;
+
+    // if small movement, don't treat as drag yet
+    if (!draggingRef.current.moved && Math.hypot(dx, dy) < 3) {
+      return;
+    }
+    draggingRef.current.moved = true;
+
+    // recompute wrapper rect each move to account for scaling/scrolling
+    const wrapper = pageWrapperRef.current;
+    const rect = wrapper ? wrapper.getBoundingClientRect() : draggingRef.current.rect;
+
+    // compute new center in percent directly from current pointer position
+    const newX = Math.max(2, Math.min(98, ((clientX - rect.left) / rect.width) * 100));
+    const newY = Math.max(2, Math.min(98, ((clientY - rect.top) / rect.height) * 100));
+
     // update live (not yet saved) so UI moves
     setNotes(prevNotes => ({ ...prevNotes, [page]: { ...(prevNotes[page] || {}), x: newX, y: newY } }));
+
     // update start for continuous movement
-    draggingRef.current.startX = e.clientX;
-    draggingRef.current.startY = e.clientY;
+    draggingRef.current.startX = clientX;
+    draggingRef.current.startY = clientY;
+    draggingRef.current.rect = rect;
   };
 
-  const onBubbleMouseUp = (e) => {
+  const onBubblePointerUp = (e) => {
     if (!draggingRef.current) return;
-    const { page } = draggingRef.current;
-    // persist position
-    // save single page position to server if present
-    const note = notes[page];
-    if (note) saveNoteToServer(page, note);
+    const { page, moved } = draggingRef.current;
+
+    // if we didn't move, treat as a click to open editor
+    if (!moved) {
+      // open editor for this page
+      openEditorForPage(page);
+    } else {
+      // persist position
+      const note = notes[page];
+      if (note) saveNoteToServer(page, note);
+    }
+
+    // release pointer capture if possible
+    try { e.target && e.target.releasePointerCapture && e.target.releasePointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+
     draggingRef.current = null;
-    window.removeEventListener('mousemove', onBubbleMouseMove);
-    window.removeEventListener('mouseup', onBubbleMouseUp);
+    window.removeEventListener('pointermove', onBubblePointerMove);
+    window.removeEventListener('pointerup', onBubblePointerUp);
   };
 
   // current note for displayed page (used by render)
@@ -361,8 +392,7 @@ function PDFViewer({ file, filename, currentPage, totalPages, onPageChange, onTe
               <div
                 className="note-bubble"
                 style={{ position: 'absolute', left: `${currentNote.x}%`, top: `${currentNote.y}%`, transform: 'translate(-50%, -50%)' }}
-                onMouseDown={(e) => onBubbleMouseDown(e, currentPage)}
-                onClick={(e) => { e.stopPropagation(); openEditorForPage(currentPage); }}
+                onPointerDown={(e) => onBubblePointerDown(e, currentPage)}
                 title={notes[currentPage]?.text ? 'Open note' : 'Add note'}
               >
                 📝

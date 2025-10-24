@@ -203,6 +203,8 @@
   cursor: grab;
   z-index: 6; /* above text layer */
   user-select: none;
+  /* ensure touch devices allow dragging without the page panning */
+  touch-action: none;
   font-size: 18px;
 }
 .note-bubble:active { cursor: grabbing; }
