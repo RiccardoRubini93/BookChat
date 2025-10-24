@@ -217,7 +217,7 @@ async def summarize_page(request: SummarizeRequest):
             messages=[
                 {
                     "role": "system",
-                    "content": "You are a helpful assistant that provides clear and concise summaries of text content. Focus on the main ideas and key points."
+                    "content": "You are a helpful assistant that provides clear and concise summaries of text content. Focus on the main ideas and key points. Format your response using markdown for better readability. Use bullet points, headings, bold text, and italic text where appropriate. If there are mathematical formulas, use LaTeX notation enclosed in $ for inline math or $$ for display math."
                 },
                 {
                     "role": "user",
@@ -261,7 +261,7 @@ async def analyze_page(request: AnalyzeRequest):
             messages=[
                 {
                     "role": "system",
-                    "content": "You are a helpful assistant that provides insightful analysis and reflections on text content. Provide thoughtful, detailed responses to user questions about the text."
+                    "content": "You are a helpful assistant that provides insightful analysis and reflections on text content. Provide thoughtful, detailed responses to user questions about the text. Format your response using markdown for better readability. Use headings, bullet points, bold/italic text, and code blocks where appropriate. If there are mathematical formulas, use LaTeX notation enclosed in $ for inline math or $$ for display math."
                 },
                 {
                     "role": "user",
@@ -295,9 +295,9 @@ async def text_operation(request: TextOperationRequest):
         
         # Define system prompts for each operation
         system_prompts = {
-            "summarize": "You are a helpful assistant that provides clear and concise summaries. Focus on the main points and key ideas.",
-            "rephrase": "You are a helpful assistant that rephrases text in a clearer, more accessible way while maintaining the original meaning. Make it easier to understand.",
-            "explain": "You are a helpful assistant that explains complex concepts in simple terms. Break down difficult ideas and provide context and examples when helpful."
+            "summarize": "You are a helpful assistant that provides clear and concise summaries. Focus on the main points and key ideas. Format your response using markdown with bullet points, bold text, and headings where appropriate. Use LaTeX notation ($ for inline, $$ for display) for any mathematical formulas.",
+            "rephrase": "You are a helpful assistant that rephrases text in a clearer, more accessible way while maintaining the original meaning. Make it easier to understand. Format your response using markdown for better readability. Use LaTeX notation ($ for inline, $$ for display) for any mathematical formulas.",
+            "explain": "You are a helpful assistant that explains complex concepts in simple terms. Break down difficult ideas and provide context and examples when helpful. Format your response using markdown with bullet points, numbered lists, and emphasis where appropriate. Use LaTeX notation ($ for inline, $$ for display) for any mathematical formulas."
         }
         
         user_prompts = {

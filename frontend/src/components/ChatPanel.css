@@ -106,6 +106,126 @@
   font-size: 0.95rem;
 }
 
+/* Markdown styling within messages */
+.message-content p {
+  margin: 0 0 10px 0;
+}
+
+.message-content p:last-child {
+  margin-bottom: 0;
+}
+
+.message-content h1,
+.message-content h2,
+.message-content h3,
+.message-content h4,
+.message-content h5,
+.message-content h6 {
+  margin: 12px 0 8px 0;
+  font-weight: 600;
+}
+
+.message-content h1 { font-size: 1.4em; }
+.message-content h2 { font-size: 1.3em; }
+.message-content h3 { font-size: 1.2em; }
+.message-content h4 { font-size: 1.1em; }
+
+.message-content code {
+  background: rgba(0, 0, 0, 0.1);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+  font-size: 0.9em;
+}
+
+.message.user .message-content code {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.message-content pre {
+  background: rgba(0, 0, 0, 0.05);
+  padding: 12px;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin: 10px 0;
+}
+
+.message.user .message-content pre {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.message-content pre code {
+  background: none;
+  padding: 0;
+  font-size: 0.85em;
+}
+
+.message-content ul,
+.message-content ol {
+  margin: 8px 0;
+  padding-left: 24px;
+}
+
+.message-content li {
+  margin: 4px 0;
+}
+
+.message-content blockquote {
+  border-left: 3px solid rgba(0, 0, 0, 0.2);
+  padding-left: 12px;
+  margin: 10px 0;
+  font-style: italic;
+  opacity: 0.9;
+}
+
+.message.user .message-content blockquote {
+  border-left-color: rgba(255, 255, 255, 0.4);
+}
+
+.message-content a {
+  color: inherit;
+  text-decoration: underline;
+  font-weight: 500;
+}
+
+.message-content table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 10px 0;
+}
+
+.message-content th,
+.message-content td {
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  padding: 8px;
+  text-align: left;
+}
+
+.message.user .message-content th,
+.message.user .message-content td {
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.message-content th {
+  background: rgba(0, 0, 0, 0.05);
+  font-weight: 600;
+}
+
+.message.user .message-content th {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+/* KaTeX math styling */
+.message-content .katex {
+  font-size: 1.05em;
+}
+
+.message-content .katex-display {
+  margin: 12px 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
 .message.user .message-content {
   background: #007bff;
   color: white;
