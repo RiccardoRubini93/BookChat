@@ -1,0 +1,43 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: bookchat-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - BACKEND_PORT=${BACKEND_PORT:-8000}
+      - BACKEND_HOST=${BACKEND_HOST:-0.0.0.0}
+    volumes:
+      - ./backend:/app
+      - backend-uploads:/app/uploads
+    networks:
+      - bookchat-network
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: bookchat-frontend
+    ports:
+      - "3002:3000"
+    environment:
+      - VITE_API_URL=http://localhost:8000
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    networks:
+      - bookchat-network
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  backend-uploads:
+
+networks:
+  bookchat-network:
+    driver: bridge
