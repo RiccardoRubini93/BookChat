@@ -274,11 +274,20 @@
   position: absolute;
   width: 12px;
   height: 12px;
-  background: rgba(0,0,0,0.12);
+  /* hide the solid grey square by default */
+  background: transparent;
+  border: 1px solid rgba(0,0,0,0.06);
   border-radius: 3px;
   z-index: 9;
+  opacity: 0;
+  transition: opacity 120ms ease, background 120ms ease, border-color 120ms ease;
 }
-.editor-resizer:hover { background: rgba(0,0,0,0.18); }
+.note-editor:hover .editor-resizer,
+.note-editor:focus-within .editor-resizer {
+  opacity: 1;
+  background: rgba(0,0,0,0.04);
+  border-color: rgba(0,0,0,0.12);
+}
 .editor-resizer-right {
   right: -6px;
   top: 50%;
