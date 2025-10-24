@@ -16,10 +16,70 @@ function PDFViewer({ file, filename, currentPage, totalPages, onPageChange, onTe
   const [highlights, setHighlights] = useState([]); // {id, text, color, page, position}
   const highlightsRef = useRef(highlights);
   const [lastHighlightId, setLastHighlightId] = useState(null);
+  // Per-page notes: { [pageNumber]: { text: string, x: number (0-100), y: number (0-100) } }
+  const [notes, setNotes] = useState({});
+  const [editing, setEditing] = useState(false);
+  const [editingText, setEditingText] = useState('');
+  const [editingPage, setEditingPage] = useState(null);
+  const pageWrapperRef = useRef(null);
 
   useEffect(() => {
     highlightsRef.current = highlights;
   }, [highlights]);
+
+  // Load notes for this PDF from server when filename changes
+  useEffect(() => {
+    if (!filename) return;
+    const load = async () => {
+      try {
+        const res = await fetch(`/api/notes?filename=${encodeURIComponent(filename)}`);
+        if (!res.ok) throw new Error('Failed to fetch notes');
+        const json = await res.json();
+        // server returns { notes: { page: {text,x,y} } }
+        const mapped = {};
+        Object.entries(json.notes || {}).forEach(([k,v]) => { mapped[Number(k)] = v; });
+        setNotes(mapped);
+      } catch (err) {
+        console.warn('Failed to load notes from server', err);
+        setNotes({});
+      }
+    };
+    load();
+  }, [filename]);
+
+  // Save a single note to server
+  const saveNoteToServer = async (page, note) => {
+    if (!filename) {
+      console.warn('No filename provided for server-side notes');
+      return;
+    }
+    try {
+      const form = new FormData();
+      form.append('filename', filename);
+      form.append('page', String(page));
+      form.append('text', note.text || '');
+      form.append('x', String(note.x ?? 85));
+      form.append('y', String(note.y ?? 10));
+      const res = await fetch('/api/notes', { method: 'POST', body: form });
+      if (!res.ok) throw new Error('Failed to save note');
+      return true;
+    } catch (err) {
+      console.warn('Failed to save note to server', err);
+      return false;
+    }
+  };
+
+  const deleteNoteFromServer = async (page) => {
+    if (!filename) return;
+    try {
+      const res = await fetch(`/api/notes?filename=${encodeURIComponent(filename)}&page=${page}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('Failed to delete note');
+      return true;
+    } catch (err) {
+      console.warn('Failed to delete note on server', err);
+      return false;
+    }
+  };
 
   // Apply an inline highlight to the current selection inside the PDF text layer
   const applyHighlightToSelection = (id, color) => {
@@ -151,6 +211,129 @@ function PDFViewer({ file, filename, currentPage, totalPages, onPageChange, onTe
     setContextMenu(null);
   };
 
+  // Note handlers
+  const openEditorForPage = (page) => {
+    const note = notes[page] || { text: '', x: 85, y: 10 };
+    setEditingPage(page);
+    setEditingText(note.text || '');
+    setEditing(true);
+  };
+
+  const saveNote = (page, text, position) => {
+    const newNotes = { ...notes };
+    newNotes[page] = {
+      text: text || '',
+      x: position?.x ?? (newNotes[page]?.x ?? 85),
+      y: position?.y ?? (newNotes[page]?.y ?? 10),
+    };
+    setNotes(newNotes);
+    // persist to server
+    saveNoteToServer(page, newNotes[page]);
+    setEditing(false);
+    setEditingPage(null);
+  };
+
+  const deleteNote = (page) => {
+    const newNotes = { ...notes };
+    delete newNotes[page];
+    setNotes(newNotes);
+    deleteNoteFromServer(page);
+    setEditing(false);
+    setEditingPage(null);
+  };
+
+  // Dragging the bubble to reposition it on the page
+  const draggingRef = useRef(null);
+  const onBubbleMouseDown = (e, page) => {
+    e.stopPropagation();
+    const wrapper = pageWrapperRef.current;
+    if (!wrapper) return;
+    const rect = wrapper.getBoundingClientRect();
+    draggingRef.current = { page, rect, startX: e.clientX, startY: e.clientY };
+    window.addEventListener('mousemove', onBubbleMouseMove);
+    window.addEventListener('mouseup', onBubbleMouseUp);
+  };
+
+  const onBubbleMouseMove = (e) => {
+    if (!draggingRef.current) return;
+    const { page, rect, startX, startY } = draggingRef.current;
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+    // compute new center in percent
+    const prev = notes[page] || { x: 85, y: 10 };
+    // convert prev percent to px
+    const prevPxX = rect.left + (prev.x / 100) * rect.width;
+    const prevPxY = rect.top + (prev.y / 100) * rect.height;
+    const newPxX = prevPxX + dx;
+    const newPxY = prevPxY + dy;
+    const newX = Math.max(2, Math.min(98, ((newPxX - rect.left) / rect.width) * 100));
+    const newY = Math.max(2, Math.min(98, ((newPxY - rect.top) / rect.height) * 100));
+    // update live (not yet saved) so UI moves
+    setNotes(prevNotes => ({ ...prevNotes, [page]: { ...(prevNotes[page] || {}), x: newX, y: newY } }));
+    // update start for continuous movement
+    draggingRef.current.startX = e.clientX;
+    draggingRef.current.startY = e.clientY;
+  };
+
+  const onBubbleMouseUp = (e) => {
+    if (!draggingRef.current) return;
+    const { page } = draggingRef.current;
+    // persist position
+    // save single page position to server if present
+    const note = notes[page];
+    if (note) saveNoteToServer(page, note);
+    draggingRef.current = null;
+    window.removeEventListener('mousemove', onBubbleMouseMove);
+    window.removeEventListener('mouseup', onBubbleMouseUp);
+  };
+
+  // current note for displayed page (used by render)
+  const currentNote = notes[currentPage] || { x: 85, y: 10 };
+  const [pageDims, setPageDims] = useState(null); // {width, height}
+  const [fitMode, setFitMode] = useState('none'); // 'none' | 'fit-width' | 'fit-page'
+
+  // Called when the Page loads to obtain original dimensions
+  const onPageLoadSuccess = (pdfPage) => {
+    try {
+      const viewport = pdfPage.getViewport({ scale: 1 });
+      setPageDims({ width: viewport.width, height: viewport.height });
+    } catch (err) {
+      // ignore
+    }
+  };
+
+  useEffect(() => {
+    if (!fitMode || fitMode === 'none' || !pageWrapperRef.current) return;
+    const wrapper = pageWrapperRef.current;
+
+    const recalc = () => {
+      // Prefer the outer .pdf-content container for sizing (this is the scrollable viewport area)
+      const container = wrapper.closest && wrapper.closest('.pdf-content') || wrapper.parentElement || wrapper;
+      const parentRect = container.getBoundingClientRect();
+      // leave some horizontal padding so the page doesn't touch the edges
+      const maxWidth = Math.max(100, Math.floor(parentRect.width - 40));
+
+      if (fitMode === 'fit-width') {
+        setPageWidth(maxWidth);
+      } else if (fitMode === 'fit-page' && pageDims) {
+        // Fit the whole page into the visible container height
+        const availableHeight = Math.max(100, container.clientHeight - 20);
+        const scale = availableHeight / pageDims.height;
+        const targetWidth = Math.max(100, Math.floor(pageDims.width * scale));
+        // ensure we don't exceed the container width
+        setPageWidth(Math.min(targetWidth, maxWidth));
+      }
+    };
+
+    // Recalc now
+    recalc();
+
+    // Recalc on window resize while in fit mode
+    const onResize = () => recalc();
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, [fitMode, pageDims, currentPage]);
+
   return (
     <div className="pdf-viewer" onClick={handleClickOutside}>
       <div className="pdf-header">
@@ -165,25 +348,55 @@ function PDFViewer({ file, filename, currentPage, totalPages, onPageChange, onTe
           error={<div className="error">Failed to load PDF</div>}
         >
           <div onMouseUp={handleTextSelection}>
-            <Page 
-              pageNumber={currentPage} 
-              width={Math.min(pageWidth, 800)}
-              renderTextLayer={true}
-              renderAnnotationLayer={true}
-            />
-            {/* Render highlights for current page */}
-            <div className="pdf-highlights">
-              {highlights.filter(h => h.page === currentPage).map(h => (
-                <span
-                  key={h.id}
-                  className="pdf-highlight"
-                  style={{ background: h.color, cursor: 'pointer', margin: '2px', padding: '2px', borderRadius: '3px' }}
-                  onClick={() => onHighlightClick && onHighlightClick(h)}
-                  title={h.text}
-                >
-                  {h.text.length > 30 ? h.text.substring(0, 30) + '...' : h.text}
-                </span>
-              ))}
+            <div className="page-wrapper" ref={pageWrapperRef} style={{ display: 'inline-block', position: 'relative' }}>
+              <Page 
+                pageNumber={currentPage} 
+                width={pageWidth}
+                renderTextLayer={true}
+                renderAnnotationLayer={true}
+                onLoadSuccess={onPageLoadSuccess}
+              />
+
+              {/* Note bubble (positioned in percent relative to page-wrapper) */}
+              <div
+                className="note-bubble"
+                style={{ position: 'absolute', left: `${currentNote.x}%`, top: `${currentNote.y}%`, transform: 'translate(-50%, -50%)' }}
+                onMouseDown={(e) => onBubbleMouseDown(e, currentPage)}
+                onClick={(e) => { e.stopPropagation(); openEditorForPage(currentPage); }}
+                title={notes[currentPage]?.text ? 'Open note' : 'Add note'}
+              >
+                📝
+              </div>
+              {/* Note editor popup */}
+              {editing && editingPage === currentPage && (
+                <div className="note-editor" onClick={(e) => e.stopPropagation()} style={{ left: `${currentNote.x}%`, top: `${currentNote.y + 8}%`, transform: 'translate(-50%, 0)' }}>
+                  <textarea
+                    value={editingText}
+                    onChange={(e) => setEditingText(e.target.value)}
+                    placeholder={`Notes for page ${currentPage}`}
+                  />
+                  <div className="note-editor-actions">
+                    <button onClick={() => saveNote(currentPage, editingText, notes[currentPage])}>Save</button>
+                    <button onClick={() => { setEditing(false); setEditingPage(null); }}>Close</button>
+                    <button onClick={() => deleteNote(currentPage)} style={{ color: 'red' }}>Delete</button>
+                  </div>
+                </div>
+              )}
+
+              {/* Render highlights for current page */}
+              <div className="pdf-highlights">
+                {highlights.filter(h => h.page === currentPage).map(h => (
+                  <span
+                    key={h.id}
+                    className="pdf-highlight"
+                    style={{ background: h.color, cursor: 'pointer', margin: '2px', padding: '2px', borderRadius: '3px' }}
+                    onClick={() => onHighlightClick && onHighlightClick(h)}
+                    title={h.text}
+                  >
+                    {h.text.length > 30 ? h.text.substring(0, 30) + '...' : h.text}
+                  </span>
+                ))}
+              </div>
             </div>
           </div>
         </Document>
@@ -236,7 +449,13 @@ function PDFViewer({ file, filename, currentPage, totalPages, onPageChange, onTe
         <span className="page-info">
           Page {currentPage} of {totalPages}
         </span>
-        
+
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <button className="nav-button" onClick={() => { setFitMode('fit-width'); }} title="Fit width">Fit width</button>
+          <button className="nav-button" onClick={() => { setFitMode('fit-page'); }} title="Fit page">Fit page</button>
+          <button className="nav-button" onClick={() => { setFitMode('none'); setPageWidth(600); }} title="Reset">Reset</button>
+        </div>
+
         <button 
           onClick={goToNextPage} 
           disabled={currentPage >= totalPages}

@@ -189,3 +189,61 @@
 .pdf-highlight {
   font-size: 0.8rem;
 }
+
+/* Note bubble styles */
+.note-bubble {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: #fffbcc;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.15);
+  cursor: grab;
+  z-index: 6; /* above text layer */
+  user-select: none;
+  font-size: 18px;
+}
+.note-bubble:active { cursor: grabbing; }
+
+/* Note editor popup */
+.note-editor {
+  position: absolute;
+  right: 0; /* default fallback */
+  top: 48px;
+  z-index: 7;
+  width: 320px;
+  max-width: calc(100vw - 80px);
+  background: white;
+  border-radius: 10px;
+  box-shadow: 0 6px 30px rgba(0,0,0,0.2);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.note-editor textarea {
+  min-height: 120px;
+  width: 100%;
+  resize: vertical;
+  padding: 8px;
+  border-radius: 6px;
+  border: 1px solid #e0e0e0;
+  font-size: 0.95rem;
+}
+.note-editor-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.note-editor-actions button {
+  padding: 8px 12px;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  background: #007bff;
+  color: white;
+}
+.note-editor-actions button:hover { filter: brightness(0.95); }
+.note-editor-actions button[style*="red"] { background: #ff5252; }

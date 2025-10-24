@@ -31,6 +31,8 @@ client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 # Storage configuration
 UPLOAD_DIR = Path("uploads")
 UPLOAD_DIR.mkdir(exist_ok=True)
+NOTES_DIR = UPLOAD_DIR / "notes"
+NOTES_DIR.mkdir(exist_ok=True)
 
 # Global storage for current PDF
 current_pdf = {"path": None, "num_pages": 0, "filename": None}
@@ -145,6 +147,61 @@ def extract_text_from_page(pdf_path: str, page_number: int) -> str:
             return text
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error extracting text: {str(e)}")
+
+
+def notes_file_for(filename: str) -> Path:
+    return NOTES_DIR / f"{filename}.notes.json"
+
+
+@app.get("/api/notes")
+async def get_notes(filename: str = Query(...)):
+    """Return all notes for a given PDF filename as a mapping page -> note object."""
+    file = notes_file_for(filename)
+    if not file.exists():
+        return JSONResponse(content={"notes": {}})
+    try:
+        import json
+        with open(file, 'r') as f:
+            data = json.load(f)
+        return JSONResponse(content={"notes": data})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error reading notes: {str(e)}")
+
+
+@app.post("/api/notes")
+async def save_note(filename: str = Form(...), page: int = Form(...), text: str = Form(''), x: float = Form(85.0), y: float = Form(10.0)):
+    """Save a single page note for filename. Overwrites the page entry."""
+    file = notes_file_for(filename)
+    try:
+        import json
+        notes = {}
+        if file.exists():
+            with open(file, 'r') as f:
+                notes = json.load(f)
+        notes[str(page)] = {"text": text, "x": float(x), "y": float(y)}
+        with open(file, 'w') as f:
+            json.dump(notes, f)
+        return JSONResponse(content={"ok": True, "note": notes[str(page)]})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error saving note: {str(e)}")
+
+
+@app.delete("/api/notes")
+async def delete_note(filename: str = Query(...), page: int = Query(...)):
+    """Delete a note for a given page and filename."""
+    file = notes_file_for(filename)
+    if not file.exists():
+        return JSONResponse(content={"ok": True})
+    try:
+        import json
+        with open(file, 'r') as f:
+            notes = json.load(f)
+        notes.pop(str(page), None)
+        with open(file, 'w') as f:
+            json.dump(notes, f)
+        return JSONResponse(content={"ok": True})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error deleting note: {str(e)}")
 
 
 @app.get("/")
