@@ -9,26 +9,26 @@
 }
 
 .upload-card {
-  background: white;
-  border-radius: 12px;
+  background: var(--surface);
+  border-radius: var(--radius);
   padding: 40px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-  max-width: 500px;
+  box-shadow: var(--soft-shadow);
+  max-width: 560px;
   width: 100%;
   text-align: center;
   margin: auto;
 }
 
 .upload-card h1 {
-  font-size: 2.5rem;
-  margin-bottom: 10px;
-  color: #333;
+  font-size: 2.2rem;
+  margin-bottom: 8px;
+  color: #081026;
 }
 
 .subtitle {
-  color: #666;
-  margin-bottom: 30px;
-  font-size: 1.1rem;
+  color: var(--muted);
+  margin-bottom: 24px;
+  font-size: 1.05rem;
 }
 
 .upload-area {
@@ -37,19 +37,18 @@
 
 .upload-button {
   display: inline-block;
-  background: #007bff;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
   color: white;
   padding: 12px 32px;
-  border-radius: 8px;
+  border-radius: 10px;
   cursor: pointer;
   font-size: 1rem;
-  font-weight: 500;
-  transition: background 0.3s;
+  font-weight: 600;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+  box-shadow: 0 10px 30px rgba(10,84,255,0.08);
 }
 
-.upload-button:hover {
-  background: #0056b3;
-}
+.upload-button:hover { transform: translateY(-2px); }
 
 .upload-button:active {
   transform: scale(0.98);
@@ -76,9 +75,9 @@ input[type="file"]:disabled + .upload-button {
 }
 
 .upload-info p {
-  color: #666;
-  margin-bottom: 15px;
-  font-weight: 500;
+  color: var(--muted);
+  margin-bottom: 12px;
+  font-weight: 600;
 }
 
 .upload-info ul {

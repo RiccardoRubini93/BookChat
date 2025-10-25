@@ -4,7 +4,7 @@
   display: flex;
   justify-content: flex-start;
   align-items: stretch;
-  background-color: #f5f5f5;
+  background: transparent; /* background handled by body gradient */
 }
 
 /* Lock the page viewport to avoid the whole window scrolling; internal panes handle their own scrolling */
@@ -15,35 +15,69 @@ html, body, #root {
 }
 
 .sidebar-container {
-  width: 220px;
+  width: 240px;
   height: 100vh;
-  background: #f4f6fa;
-  border-right: 1px solid #e0e0e0;
+  background: var(--sidebar-bg);
+  border-right: 1px solid rgba(15,23,42,0.06);
   display: flex;
   flex-direction: column;
   z-index: 2;
+  box-shadow: var(--card-shadow);
 }
 
 .main-container {
   display: flex;
-  width: calc(100% - 220px);
+  width: calc(100% - 240px);
   height: 100vh;
-  background-color: white;
+  background-color: transparent;
+  border-radius: 0 0 0 0;
 }
 
 .pdf-section {
-  flex: 2;
-  border-right: 1px solid #e0e0e0;
+  flex: 0 0 65%; /* left column ~65% */
+  border-right: 1px solid rgba(15,23,42,0.06);
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  padding: 12px;
 }
 
 .chat-section {
-  flex: 1;
+  flex: 0 0 35%; /* right column ~35% */
   display: flex;
   flex-direction: column;
-  background-color: #fafafa;
+  padding: 12px;
+}
+
+/* style the inner surfaces (we don't change markup — style existing classes inside the columns) */
+.pdf-section .pdf-viewer,
+.pdf-section > div {
+  background: var(--surface);
+  border-radius: var(--radius);
+  box-shadow: var(--soft-shadow);
+  height: calc(100% - 24px);
+  overflow: hidden;
+}
+
+.chat-section .chat-panel,
+.chat-section > div {
+  background: var(--surface);
+  border-radius: var(--radius);
+  box-shadow: var(--soft-shadow);
+  height: calc(100% - 24px);
+  overflow: hidden;
+}
+
+/* subtle visual separator between columns (non-interactive) */
+.main-container::after {
+  content: '';
+  position: absolute;
+  left: calc(240px + 65% - 1px - 12px);
+  top: 24px;
+  bottom: 24px;
+  width: 1px;
+  background: linear-gradient(180deg, rgba(15,23,42,0.03), rgba(15,23,42,0.06));
+  pointer-events: none;
 }
 
 @media (max-width: 1024px) {

@@ -22,6 +22,10 @@ function PDFViewer({ file, filename, currentPage, totalPages, onPageChange, onTe
   const [editingText, setEditingText] = useState('');
   const [editingPage, setEditingPage] = useState(null);
   const pageWrapperRef = useRef(null);
+  const wheelAccumRef = useRef(0);
+  const lastWheelTimeRef = useRef(0);
+  const [pageTurnClass, setPageTurnClass] = useState('');
+  const prevPageRef = useRef(currentPage);
 
   useEffect(() => {
     highlightsRef.current = highlights;
@@ -146,6 +150,67 @@ function PDFViewer({ file, filename, currentPage, totalPages, onPageChange, onTe
   function onDocumentLoadSuccess({ numPages }) {
     setNumPages(numPages);
   }
+
+  // Enable touchpad horizontal swipe navigation between pages.
+  useEffect(() => {
+    const wrapper = pageWrapperRef.current;
+    if (!wrapper) return;
+
+    const onWheel = (e) => {
+      // Only consider primarily-horizontal trackpad gestures
+      const now = Date.now();
+      // ignore if we recently navigated
+      if (now - lastWheelTimeRef.current < 500) return;
+
+      const absX = Math.abs(e.deltaX || 0);
+      const absY = Math.abs(e.deltaY || 0);
+      if (absX < 6) return; // too small
+
+      // Only treat it as a horizontal swipe when horizontal movement dominates
+      if (absX < absY) return;
+
+      // Accumulate deltaX to avoid firing on tiny steps
+      wheelAccumRef.current += e.deltaX;
+
+      // threshold in pixels (tweakable)
+      const THRESHOLD = 80;
+      if (wheelAccumRef.current <= -THRESHOLD) {
+        // swipe left -> PREVIOUS page (inverted)
+        goToPrevPage();
+        lastWheelTimeRef.current = now;
+        wheelAccumRef.current = 0;
+      } else if (wheelAccumRef.current >= THRESHOLD) {
+        // swipe right -> NEXT page (inverted)
+        goToNextPage();
+        lastWheelTimeRef.current = now;
+        wheelAccumRef.current = 0;
+      }
+      // reset accumulator after short idle
+      clearTimeout(onWheel._timer);
+      onWheel._timer = setTimeout(() => { wheelAccumRef.current = 0; }, 200);
+    };
+
+    wrapper.addEventListener('wheel', onWheel, { passive: true });
+    return () => {
+      wrapper.removeEventListener('wheel', onWheel);
+      clearTimeout(onWheel._timer);
+    };
+  }, [pageWrapperRef, currentPage, totalPages]);
+
+  // Page-turn visual effect: add a class briefly when page changes
+  useEffect(() => {
+    const prev = prevPageRef.current;
+    if (prev === undefined || prev === currentPage) {
+      prevPageRef.current = currentPage;
+      return;
+    }
+    const direction = currentPage > prev ? 'page-turn-left' : 'page-turn-right';
+    setPageTurnClass(direction);
+    // clear after animation duration
+    const t = setTimeout(() => setPageTurnClass(''), 650);
+    prevPageRef.current = currentPage;
+    return () => clearTimeout(t);
+  }, [currentPage]);
 
   const goToPrevPage = () => {
     if (currentPage > 1) {
@@ -438,7 +503,7 @@ function PDFViewer({ file, filename, currentPage, totalPages, onPageChange, onTe
           error={<div className="error">Failed to load PDF</div>}
         >
           <div onMouseUp={handleTextSelection}>
-            <div className="page-wrapper" ref={pageWrapperRef} style={{ display: 'inline-block', position: 'relative' }}>
+            <div className={`page-wrapper ${pageTurnClass}`} ref={pageWrapperRef} style={{ display: 'inline-block', position: 'relative' }}>
               <Page 
                 pageNumber={currentPage} 
                 width={pageWidth}

@@ -21,6 +21,8 @@ const ChatPanel = forwardRef(({ currentPage, highlights = [], onJumpToHighlight,
   const [mode, setMode] = useState('ask'); // 'summarize' or 'ask'
   const messagesEndRef = useRef(null);
 
+  // quick suggestion chips removed
+
   const scrollToBottom = () => {
     const container = messagesContainerRef.current;
     try {
@@ -201,6 +203,23 @@ const ChatPanel = forwardRef(({ currentPage, highlights = [], onJumpToHighlight,
     setMessages([]);
     if (filename) {
       axios.delete(`${API_URL}/api/chats`, { params: { filename } }).catch(err => console.warn('Failed to clear chats', err));
+    }
+  };
+
+  // Copy message content to clipboard (client-side)
+  const copyMessageToClipboard = async (text) => {
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      // optional: small visual feedback could be added later
+    } catch (err) {
+      // fallback: create a textarea and copy
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); } catch (e) {}
+      document.body.removeChild(ta);
     }
   };
 
@@ -439,37 +458,67 @@ const ChatPanel = forwardRef(({ currentPage, highlights = [], onJumpToHighlight,
         </div>
       </div>
 
+      {/* top quick-actions removed */}
+
   <div className="chat-messages" ref={messagesContainerRef}>
-        {messages.length === 0 ? (
-          <div className="empty-state">
-            <p>👋 Start a conversation!</p>
-            <p className="empty-hint">
-              Click "Summarize" to get a summary of the current page,
-              or ask a question about the content.
-            </p>
-          </div>
-        ) : (
-          messages.map((message, index) => (
+        {messages.map((message, index) => (
             <div key={index} className={`message ${message.role}`} ref={el => messageRefs.current[index] = el}>
-              <div className="message-content">
+                {/* avatar initials (clickable if highlightId present) */}
+                <button
+                  className="avatar"
+                  onClick={() => message.highlightId && onJumpToHighlight && onJumpToHighlight(message.highlightId)}
+                  aria-hidden={!message.highlightId}
+                  title={message.highlightId ? 'Go to highlight' : (message.role === 'assistant' ? 'Assistant' : 'You')}
+                >
+                  {message.role === 'user' ? 'Me' : 'AI'}
+                </button>
+                <div className="message-content">
                 <ReactMarkdown
                   remarkPlugins={[remarkMath, remarkGfm]}
                   rehypePlugins={[rehypeKatex]}
                 >
                   {message.content}
                 </ReactMarkdown>
-                {message.timestamp && (
-                  <div className="message-timestamp">{new Date(message.timestamp).toLocaleString()}</div>
+
+                {/* Quote / thumbnail preview (UI-only): render when backend includes page/thumbnail/quote fields */}
+                {(message.page || message.thumbnailUrl || message.quote) && (
+                  <div
+                    className="quote-card"
+                    onClick={() => {
+                      // if highlight jump is available, reuse it; otherwise try page-based jump if provided
+                      if (message.highlightId && onJumpToHighlight) onJumpToHighlight(message.highlightId);
+                    }}
+                    title={message.quote ? 'Open referenced page' : 'Preview page'}
+                  >
+                    <div className="quote-thumb">
+                      {message.thumbnailUrl ? (
+                        <img src={message.thumbnailUrl} alt={`Page ${message.page || ''}`} />
+                      ) : (
+                        <div className="thumb-placeholder">{message.page ? `Page ${message.page}` : 'Preview'}</div>
+                      )}
+                    </div>
+                    <div className="quote-body">
+                      <div className="quote-text">{message.quote || message.excerpt || ''}</div>
+                      {message.page && <div className="quote-meta">Page {message.page}</div>}
+                    </div>
+                  </div>
+                )}
+                <div className="message-meta">
+                  {message.timestamp && (
+                    <span className="message-timestamp">{new Date(message.timestamp).toLocaleString()}</span>
+                  )}
+                </div>
+              </div>
+
+              <div className="message-actions">
+                <button className="msg-btn copy-btn" onClick={() => copyMessageToClipboard(message.content)} title="Copy message">📋</button>
+                {message.highlightId && (
+                  <button className="msg-btn goto-btn" onClick={() => onJumpToHighlight && onJumpToHighlight(message.highlightId)} title="Go to highlight">🔗</button>
                 )}
               </div>
-              {message.highlightId && (
-                <div className="message-badge" onClick={() => onJumpToHighlight && onJumpToHighlight(message.highlightId)} title="Jump to highlight">
-                  🔗 Highlight
-                </div>
-              )}
             </div>
           ))
-        )}
+        }
         {loading && (
           <div className="message assistant">
             <div className="message-content loading-message">
