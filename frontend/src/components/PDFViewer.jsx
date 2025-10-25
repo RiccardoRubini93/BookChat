@@ -21,6 +21,7 @@ function PDFViewer({ file, filename, currentPage, totalPages, onPageChange, onTe
   const [editing, setEditing] = useState(false);
   const [editingText, setEditingText] = useState('');
   const [editingPage, setEditingPage] = useState(null);
+  const [editingExpanded, setEditingExpanded] = useState(true);
   const pageWrapperRef = useRef(null);
   const wheelAccumRef = useRef(0);
   const lastWheelTimeRef = useRef(0);
@@ -285,6 +286,7 @@ function PDFViewer({ file, filename, currentPage, totalPages, onPageChange, onTe
     setEditingPage(page);
     setEditingText(note.text || '');
     setEditing(true);
+    setEditingExpanded(true);
   };
 
   const saveNote = (page, text, position) => {
@@ -537,23 +539,42 @@ function PDFViewer({ file, filename, currentPage, totalPages, onPageChange, onTe
                 };
 
                 return (
-                  <div className="note-editor" onClick={(e) => e.stopPropagation()} style={editorStyle}>
-                    <div className="note-editor-title">Notes for page {currentPage}</div>
-                    <textarea
-                      value={editingText}
-                      onChange={(e) => setEditingText(e.target.value)}
-                      placeholder={`Notes for page ${currentPage}`}
-                      style={{ height: '100%', resize: 'none' }}
-                    />
-                    <div className="note-editor-actions">
-                      <button onClick={() => saveNote(currentPage, editingText, notes[currentPage])}>Save</button>
-                      <button onClick={() => { setEditing(false); setEditingPage(null); }}>Close</button>
-                      <button onClick={() => deleteNote(currentPage)} style={{ color: 'red' }}>Delete</button>
+                  <div className={`note-editor ${editingExpanded ? 'expanded' : 'collapsed'}`} onClick={(e) => e.stopPropagation()} style={editorStyle}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                      <div className="note-editor-title">Notes for page {currentPage}</div>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                        <button
+                          aria-label={editingExpanded ? 'Collapse note editor' : 'Expand note editor'}
+                          title={editingExpanded ? 'Collapse' : 'Expand'}
+                          onClick={() => setEditingExpanded(v => !v)}
+                          style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: 16, padding: '6px' }}
+                        >{editingExpanded ? '▾' : '▸'}</button>
+                      </div>
                     </div>
-                    {/* resizer handles */}
-                    <div className="editor-resizer editor-resizer-right" onPointerDown={(e) => onEditorResizePointerDown(e, 'right', currentPage)} />
-                    <div className="editor-resizer editor-resizer-bottom" onPointerDown={(e) => onEditorResizePointerDown(e, 'bottom', currentPage)} />
-                    <div className="editor-resizer editor-resizer-corner" onPointerDown={(e) => onEditorResizePointerDown(e, 'corner', currentPage)} />
+
+                    {/* compact preview shown when collapsed */}
+                    <div className="compact-preview" style={{ display: editingExpanded ? 'none' : 'block', padding: '8px 4px', color: '#444', fontSize: '0.94rem', maxHeight: '6.5rem', overflow: 'hidden' }}>
+                      {notes[currentPage]?.text ? notes[currentPage].text : <span style={{ color: '#999' }}>No notes</span>}
+                    </div>
+
+                    {/* full editor content */}
+                    <div style={{ display: editingExpanded ? 'block' : 'none' }}>
+                      <textarea
+                        value={editingText}
+                        onChange={(e) => setEditingText(e.target.value)}
+                        placeholder={`Notes for page ${currentPage}`}
+                        style={{ height: '100%', resize: 'none' }}
+                      />
+                      <div className="note-editor-actions">
+                        <button onClick={() => saveNote(currentPage, editingText, notes[currentPage])}>Save</button>
+                        <button onClick={() => { setEditing(false); setEditingPage(null); setEditingExpanded(true); }}>Close</button>
+                        <button onClick={() => deleteNote(currentPage)} style={{ color: 'red' }}>Delete</button>
+                      </div>
+                      {/* resizer handles */}
+                      <div className="editor-resizer editor-resizer-right" onPointerDown={(e) => onEditorResizePointerDown(e, 'right', currentPage)} />
+                      <div className="editor-resizer editor-resizer-bottom" onPointerDown={(e) => onEditorResizePointerDown(e, 'bottom', currentPage)} />
+                      <div className="editor-resizer editor-resizer-corner" onPointerDown={(e) => onEditorResizePointerDown(e, 'corner', currentPage)} />
+                    </div>
                   </div>
                 );
               })()}

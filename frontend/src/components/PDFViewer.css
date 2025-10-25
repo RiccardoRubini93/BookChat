@@ -222,24 +222,59 @@
   font-size: 0.8rem;
 }
 
-/* Note bubble styles */
+/* Note bubble styles - refreshed visuals */
 .note-bubble {
-  width: 40px;
-  height: 40px;
+  width: 48px;
+  height: 48px;
   border-radius: 50%;
-  background: #fffbcc;
+  background: linear-gradient(180deg, #fffbee 0%, #fff1b8 100%);
+  border: 1px solid rgba(12,20,30,0.06);
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 4px 14px rgba(0,0,0,0.15);
+  box-shadow: 0 8px 28px rgba(10,18,28,0.12), inset 0 1px 0 rgba(255,255,255,0.6);
   cursor: grab;
   z-index: 6; /* above text layer */
   user-select: none;
   /* ensure touch devices allow dragging without the page panning */
   touch-action: none;
-  font-size: 14px;
+  font-size: 20px; /* emoji/icon size */
+  line-height: 1;
+  transition: transform 180ms cubic-bezier(.2,.8,.2,1), box-shadow 180ms, opacity 160ms;
+  position: absolute; /* required because we rely on inline positioning */
 }
-.note-bubble:active { cursor: grabbing; }
+.note-bubble::after {
+  /* soft halo that appears on hover to increase perceived depth */
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  background: radial-gradient(circle at center, rgba(255,220,80,0.26), rgba(255,220,80,0) 45%);
+  filter: blur(10px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 200ms ease;
+  z-index: 5;
+}
+.note-bubble:hover { transform: translateY(-4px) scale(1.03); box-shadow: 0 14px 38px rgba(10,18,28,0.18); }
+.note-bubble:hover::after { opacity: 1; }
+.note-bubble:active { transform: translateY(0) scale(0.99); cursor: grabbing; box-shadow: 0 8px 22px rgba(10,18,28,0.16); }
+.note-bubble:focus-visible { outline: none; box-shadow: 0 0 0 6px rgba(255,200,60,0.12), 0 12px 36px rgba(10,18,28,0.16); }
+
+/* Distinguish global notes visually */
+.note-bubble.global {
+  background: linear-gradient(180deg, rgba(255,250,230,0.95), rgba(255,245,210,0.92));
+  box-shadow: 0 14px 40px rgba(0,0,0,0.14);
+  font-size: 18px;
+  z-index: 9;
+}
+
+/* Make the inner emoji/icon crisp and centered */
+.note-bubble > * { pointer-events: none; }
 
 /* Note editor popup */
 .note-editor {
@@ -248,44 +283,62 @@
   top: 48px;
   z-index: 7;
   width: 320px;
-  max-width: calc(100vw - 80px);
+  max-width: calc(100vw - 96px);
   background: white;
-  border-radius: 10px;
-  box-shadow: 0 6px 30px rgba(0,0,0,0.2);
+  border-radius: 12px;
+  box-shadow: 0 10px 36px rgba(0,0,0,0.18);
   padding: 12px;
   display: flex;
   flex-direction: column;
   gap: 8px;
+  box-sizing: border-box;
+  /* prevent the editor from overflowing the viewport; internal content scrolls */
+  max-height: 56vh;
+  overflow: hidden;
 }
+.note-editor.collapsed { min-height: 56px; height: auto; padding-bottom: 10px; }
+.note-editor.collapsed textarea { display: none; }
+.note-editor.collapsed .note-editor-actions { display: none; }
+.note-editor .compact-preview { display: none; }
+.note-editor.collapsed .compact-preview { display: block; }
 .note-editor textarea {
-  min-height: 120px;
+  flex: 1 1 auto;
+  min-height: 100px;
   width: 100%;
-  resize: vertical;
-  padding: 8px;
-  border-radius: 6px;
-  border: 1px solid #e0e0e0;
-  font-size: 0.78rem;
+  resize: none;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid #ececec;
+  font-size: 0.9rem;
+  line-height: 1.4;
+  overflow: auto;
+  box-sizing: border-box;
 }
 .note-editor-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 6px;
+  gap: 8px;
   flex-wrap: wrap;
   width: 100%;
+  align-items: center;
 }
 .note-editor-actions button {
-  padding: 5px 8px;
+  padding: 6px 12px;
   border: none;
-  border-radius: 6px;
+  border-radius: 8px;
   cursor: pointer;
   background: #007bff;
   color: white;
-  font-size: 0.75rem;
+  font-size: 0.9rem;
   line-height: 1;
-  min-width: 56px;
+  min-width: 64px;
+  height: 34px;
 }
-.note-editor-actions button:hover { filter: brightness(0.95); }
+.note-editor-actions button:hover { filter: brightness(0.96); }
 .note-editor-actions button[style*="red"] { background: #ff5252; }
+
+/* make sure resizer handles are visible without pushing content */
+.editor-resizer { z-index: 20; }
 
 /* smaller title in the editor */
 .note-editor-title {
