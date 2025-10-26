@@ -31,6 +31,24 @@
   background: #e9ecef;
 }
 
+/* Fullscreen styles when the viewer element is in fullscreen mode */
+.pdf-viewer:fullscreen, .pdf-viewer:-webkit-full-screen {
+  position: fixed !important;
+  top: 0; left: 0; right: 0; bottom: 0;
+  width: 100% !important;
+  height: 100% !important;
+  z-index: 99999;
+  background: #ffffff;
+}
+.pdf-viewer:fullscreen .pdf-content, .pdf-viewer:-webkit-full-screen .pdf-content {
+  padding: 24px;
+  align-items: center;
+}
+.pdf-viewer:fullscreen .page-wrapper .react-pdf__Page__canvas, .pdf-viewer:-webkit-full-screen .page-wrapper .react-pdf__Page__canvas {
+  width: 100% !important;
+  height: auto !important;
+}
+
 .react-pdf__Document {
   display: flex;
   justify-content: center;
@@ -120,21 +138,24 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 20px;
+  padding: 16px;
   background: white;
   border-top: 1px solid #e0e0e0;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .nav-button {
-  padding: 10px 20px;
+  padding: 8px 12px;
   background: #007bff;
   color: white;
   border: none;
   border-radius: 6px;
   cursor: pointer;
-  font-size: 0.95rem;
-  font-weight: 500;
-  transition: background 0.3s;
+  font-size: 0.88rem;
+  font-weight: 600;
+  transition: background 0.18s;
+  min-width: 64px;
 }
 
 .nav-button:hover:not(:disabled) {
@@ -148,7 +169,29 @@
 
 .page-info {
   color: #666;
-  font-weight: 500;
+  font-weight: 600;
+  margin: 0 12px;
+  flex: 0 0 auto;
+}
+
+.control-group {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+/* make buttons wrap onto multiple lines without overlapping */
+.pdf-controls .nav-button { flex-shrink: 0; }
+
+@media (min-width: 980px) {
+  .pdf-controls { padding: 18px 24px; }
+}
+
+@media (max-width: 640px) {
+  .pdf-controls { padding: 12px; }
+  .nav-button { padding: 6px 10px; font-size: 0.82rem; min-width: 56px; }
+  .page-info { order: 2; width: 100%; text-align: center; margin-top: 6px; }
+  .control-group { order: 1; width: 100%; justify-content: center; flex-wrap: wrap; }
 }
 
 .text-context-menu {

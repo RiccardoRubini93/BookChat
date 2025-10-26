@@ -15,6 +15,8 @@ pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/$
 function PDFViewer({ file, filename, currentPage, totalPages, onPageChange, onTextOperation, onHighlightClick, onHighlightCreated }, ref) {
   const [numPages, setNumPages] = useState(null);
   const [pageWidth, setPageWidth] = useState(600);
+  const viewerRef = useRef(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [contextMenu, setContextMenu] = useState(null);
   const [selectedText, setSelectedText] = useState('');
   const [highlightColor, setHighlightColor] = useState('#ffff00'); // default yellow
@@ -36,6 +38,24 @@ function PDFViewer({ file, filename, currentPage, totalPages, onPageChange, onTe
   useEffect(() => {
     highlightsRef.current = highlights;
   }, [highlights]);
+
+  // Fullscreen change handler to keep state in sync
+  useEffect(() => {
+    const onFsChange = () => {
+      const el = document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement;
+      setIsFullscreen(!!el);
+    };
+    document.addEventListener('fullscreenchange', onFsChange);
+    document.addEventListener('webkitfullscreenchange', onFsChange);
+    document.addEventListener('mozfullscreenchange', onFsChange);
+    document.addEventListener('MSFullscreenChange', onFsChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', onFsChange);
+      document.removeEventListener('webkitfullscreenchange', onFsChange);
+      document.removeEventListener('mozfullscreenchange', onFsChange);
+      document.removeEventListener('MSFullscreenChange', onFsChange);
+    };
+  }, []);
 
   // Load notes for this PDF from server when filename changes
   useEffect(() => {
@@ -227,6 +247,26 @@ function PDFViewer({ file, filename, currentPage, totalPages, onPageChange, onTe
   const goToNextPage = () => {
     if (currentPage < totalPages) {
       onPageChange(currentPage + 1);
+    }
+  };
+
+  const toggleFullscreen = async () => {
+    try {
+      const el = viewerRef.current || document.documentElement;
+      if (!el) return;
+      if (!isFullscreen) {
+        if (el.requestFullscreen) await el.requestFullscreen();
+        else if (el.webkitRequestFullscreen) await el.webkitRequestFullscreen();
+        else if (el.mozRequestFullScreen) await el.mozRequestFullScreen();
+        else if (el.msRequestFullscreen) await el.msRequestFullscreen();
+      } else {
+        if (document.exitFullscreen) await document.exitFullscreen();
+        else if (document.webkitExitFullscreen) await document.webkitExitFullscreen();
+        else if (document.mozCancelFullScreen) await document.mozCancelFullScreen();
+        else if (document.msExitFullscreen) await document.msExitFullscreen();
+      }
+    } catch (err) {
+      console.warn('Fullscreen toggle failed', err);
     }
   };
 
@@ -647,7 +687,7 @@ function PDFViewer({ file, filename, currentPage, totalPages, onPageChange, onTe
   }, [fitMode, pageDims, currentPage]);
 
   return (
-    <div className="pdf-viewer" onClick={handleClickOutside}>
+    <div className="pdf-viewer" ref={viewerRef} onClick={handleClickOutside}>
       <div className="pdf-header">
         <h2>📖 {filename || 'PDF Document'}</h2>
       </div>
@@ -849,10 +889,11 @@ function PDFViewer({ file, filename, currentPage, totalPages, onPageChange, onTe
           Page {currentPage} of {totalPages}
         </span>
 
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <div className="control-group">
           <button className="nav-button" onClick={() => { setFitMode('fit-width'); }} title="Fit width">Fit width</button>
           <button className="nav-button" onClick={() => { setFitMode('fit-page'); }} title="Fit page">Fit page</button>
           <button className="nav-button" onClick={() => { setFitMode('none'); setPageWidth(600); }} title="Reset">Reset</button>
+          <button className="nav-button" onClick={toggleFullscreen} title={isFullscreen ? 'Exit fullscreen' : 'Open fullscreen'}>{isFullscreen ? 'Exit' : 'Fullscreen'}</button>
         </div>
 
         {/* Selection toggle button */}
