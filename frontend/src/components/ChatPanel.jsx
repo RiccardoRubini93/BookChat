@@ -4,6 +4,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import remarkGfm from 'remark-gfm';
 import rehypeKatex from 'rehype-katex';
+import * as XLSX from 'xlsx';
 import 'katex/dist/katex.min.css';
 import './ChatPanel.css';
 import { jsPDF } from 'jspdf';
@@ -134,6 +135,109 @@ const ChatPanel = forwardRef(({ currentPage, highlights = [], onJumpToHighlight,
       return t;
     }
     return t;
+  };
+
+  // Simple CSV parser that handles quoted fields (basic implementation)
+  const parseCsv = (csv) => {
+    if (!csv) return [];
+    const rows = [];
+    const lines = csv.split(/\r?\n/);
+    for (let line of lines) {
+      if (line.trim() === '') continue;
+      const cells = [];
+      let cur = '';
+      let inQuotes = false;
+      for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (ch === '"') {
+          if (inQuotes && line[i+1] === '"') { cur += '"'; i++; } else { inQuotes = !inQuotes; }
+          continue;
+        }
+        if (ch === ',' && !inQuotes) { cells.push(cur); cur = ''; continue; }
+        cur += ch;
+      }
+      cells.push(cur);
+      rows.push(cells);
+    }
+    return rows;
+  };
+
+  const downloadContent = (content, filename, mime='text/plain') => {
+    const blob = new Blob([content], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+  };
+
+  // Convert structured JSON like { "n": [...], "POD": [...], ... } into tabular rows (array-of-arrays)
+  const structuredJsonToRows = (obj) => {
+    if (!obj || typeof obj !== 'object') return [];
+    // keys order: keep the order as provided by Object.keys
+    const keys = Object.keys(obj);
+    // if values are arrays, determine max length
+    let maxLen = 0;
+    const cols = keys.map(k => {
+      const v = obj[k];
+      if (Array.isArray(v)) { maxLen = Math.max(maxLen, v.length); return v; }
+      // if single value, treat as array of length 1
+      return [v];
+    });
+    const rows = [];
+    // header
+    rows.push(keys);
+    for (let i = 0; i < maxLen; i++) {
+      const row = keys.map((k, ci) => {
+        const col = cols[ci];
+        let val = (col && i < col.length) ? col[i] : '';
+        if (val === null || typeof val === 'undefined') return '';
+        return String(val);
+      });
+      rows.push(row);
+    }
+    return rows;
+  };
+
+  const rowsToCsv = (rows) => {
+    if (!rows || rows.length === 0) return '';
+    return rows.map(r => r.map(cell => {
+      if (cell == null) return '';
+      const s = String(cell);
+      if (s.includes(',') || s.includes('\n') || s.includes('"')) {
+        return '"' + s.replace(/"/g, '""') + '"';
+      }
+      return s;
+    }).join(',')).join('\n');
+  };
+
+  const exportToExcel = (rows, filename = 'table.xlsx') => {
+    try {
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.aoa_to_sheet(rows);
+      XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
+      XLSX.writeFile(wb, filename);
+    } catch (err) {
+      console.error('Failed to export Excel', err);
+      // fallback: download CSV
+      const csv = rowsToCsv(rows);
+      downloadContent(csv, filename.replace(/\.xlsx?$/i, '.csv'), 'text/csv');
+    }
+  };
+
+  // Build rows array from a message's structured payload (CSV, table, rows or JSON)
+  const getRowsFromMessage = (message) => {
+    if (!message || !message.structured) return [];
+    const s = message.structured;
+    if (s.csv) return parseCsv(s.csv);
+    if (s.rows) return s.rows;
+    if (s.table) return s.table;
+    if (s.json || s.structured) {
+      // if message.structured contains nested json payload under 'json' key or is itself the object
+      const candidate = s.json ? (typeof s.json === 'string' ? (() => { try { return JSON.parse(s.json); } catch { return s.json; } })() : s.json) : s;
+      if (candidate && typeof candidate === 'object') {
+        return structuredJsonToRows(candidate);
+      }
+    }
+    return [];
   };
 
   // Listen for visual selection lifecycle events (from PDFViewer)
@@ -609,26 +713,63 @@ const ChatPanel = forwardRef(({ currentPage, highlights = [], onJumpToHighlight,
                   {message.content}
                 </ReactMarkdown>
 
-                {/* Structured table preview (if backend returned structured.csv) */}
-                {message.structured && message.structured.csv && (
-                  <div className="structured-csv" style={{ marginTop: 8, border: '1px solid #eee', padding: 8, borderRadius: 6, background: '#fafafa' }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Extracted table (CSV)</div>
-                    <pre style={{ maxHeight: 160, overflow: 'auto', whiteSpace: 'pre-wrap', fontSize: 12 }}>{message.structured.csv.split('\n').slice(0, 10).join('\n')}</pre>
-                    <div style={{ marginTop: 8 }}>
-                      <button className="msg-btn" onClick={() => {
-                        const blob = new Blob([message.structured.csv], { type: 'text/csv' });
-                        const url = URL.createObjectURL(blob);
-                        const a = document.createElement('a');
-                        a.href = url;
-                        a.download = `${filename || 'extracted-table'}.csv`;
-                        document.body.appendChild(a);
-                        a.click();
-                        a.remove();
-                        URL.revokeObjectURL(url);
-                      }}>Download CSV</button>
+                {/* Structured table or CSV preview (if backend returned structured.csv or structured.table) */}
+                {message.structured && (message.structured.csv || message.structured.table || message.structured.rows || message.structured.json) && (() => {
+                  const csv = message.structured.csv;
+                  let rows = [];
+                  if (message.structured.json) {
+                    try {
+                      const raw = message.structured.json;
+                      const parsed = (typeof raw === 'string') ? JSON.parse(raw) : raw;
+                      rows = structuredJsonToRows(parsed);
+                    } catch (err) {
+                      console.warn('Failed to parse structured.json', err);
+                      rows = [];
+                    }
+                  } else if (csv) rows = parseCsv(csv);
+                  else if (message.structured.table) rows = message.structured.table;
+                  else if (message.structured.rows) rows = message.structured.rows;
+
+                  const headers = rows.length > 0 ? rows[0] : [];
+                  const bodyRows = rows.length > 1 ? rows.slice(1) : [];
+
+                  return (
+                    <div className="structured-csv" style={{ marginTop: 8, border: '1px solid #eee', padding: 8, borderRadius: 6, background: '#fafafa' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600 }}>Extracted table</div>
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          <button className="msg-btn" onClick={() => {
+                            const outCsv = csv ? csv : rowsToCsv(rows);
+                            downloadContent(outCsv, `${filename || 'table'}.csv`, 'text/csv');
+                          }}>Download CSV</button>
+                          <button className="msg-btn" onClick={() => exportToExcel(rows, `${filename || 'table'}.xlsx`)}>Download Excel</button>
+                          <button className="msg-btn" onClick={() => { navigator.clipboard && navigator.clipboard.writeText(csv || rowsToCsv(rows)); }}>Copy</button>
+                        </div>
+                      </div>
+
+                      <div style={{ overflowX: 'auto' }}>
+                        <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 13 }}>
+                          <thead>
+                            <tr>
+                              {headers.map((h, i) => (
+                                <th key={i} style={{ textAlign: 'left', borderBottom: '1px solid #e6e6e6', padding: '6px 8px', background: '#fff' }}>{h}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {bodyRows.map((r, ri) => (
+                              <tr key={ri}>
+                                {r.map((c, ci) => (
+                                  <td key={ci} style={{ padding: '6px 8px', borderBottom: '1px solid #f2f2f2' }}>{c}</td>
+                                ))}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
 
                 {/* Structured formulas (if backend returned structured.formulas) - render as LaTeX display math */}
                 {message.structured && message.structured.formulas && Array.isArray(message.structured.formulas) && (
@@ -681,12 +822,16 @@ const ChatPanel = forwardRef(({ currentPage, highlights = [], onJumpToHighlight,
                 </div>
               </div>
 
-              <div className="message-actions">
-                <button className="msg-btn copy-btn" onClick={() => copyMessageToClipboard(message.content)} title="Copy message">📋</button>
-                {message.highlightId && (
-                  <button className="msg-btn goto-btn" onClick={() => onJumpToHighlight && onJumpToHighlight(message.highlightId)} title="Go to highlight">🔗</button>
-                )}
-              </div>
+                <div className="message-actions">
+                  <button className="msg-btn copy-btn" onClick={() => copyMessageToClipboard(message.content)} aria-label="Copy message">
+                    <span className="icon">📋</span>
+                  </button>
+                  {message.highlightId && (
+                    <button className="msg-btn goto-btn" onClick={() => onJumpToHighlight && onJumpToHighlight(message.highlightId)} aria-label="Go to highlight">
+                      <span className="icon">🔗</span>
+                    </button>
+                  )}
+                </div>
             </div>
           ))
         }

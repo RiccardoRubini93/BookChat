@@ -15,4 +15,7 @@ COPY . .
 EXPOSE 3000
 
 # Start development server
-CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
+# When using a host bind-mount for /app during development the image-built node_modules
+# can be hidden; run `npm install` at container start to ensure dependencies (including
+# runtime-added ones like xlsx) are present inside the container.
+CMD ["sh", "-lc", "npm install --no-audit --no-fund && npm run dev -- --host 0.0.0.0"]
