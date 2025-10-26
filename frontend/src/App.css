@@ -34,7 +34,7 @@ html, body, #root {
 }
 
 .pdf-section {
-  flex: 0 0 65%; /* left column ~65% */
+  flex: 0 0 50%; /* left column 50% */
   border-right: 1px solid rgba(15,23,42,0.06);
   overflow: hidden;
   display: flex;
@@ -43,7 +43,7 @@ html, body, #root {
 }
 
 .chat-section {
-  flex: 0 0 35%; /* right column ~35% */
+  flex: 0 0 50%; /* right column 50% */
   display: flex;
   flex-direction: column;
   padding: 12px;
@@ -72,7 +72,7 @@ html, body, #root {
 .main-container::after {
   content: '';
   position: absolute;
-  left: calc(240px + 65% - 1px - 12px);
+  left: calc(240px + 50% - 1px - 12px);
   top: 24px;
   bottom: 24px;
   width: 1px;

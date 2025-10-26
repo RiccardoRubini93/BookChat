@@ -459,6 +459,7 @@ function PDFViewer({ file, filename, currentPage, totalPages, onPageChange, onTe
   const [selectionRect, setSelectionRect] = useState(null); // {x,y,w,h} in page-wrapper coords
   const [showToolbar, setShowToolbar] = useState(false);
   const [toolbarPos, setToolbarPos] = useState({ x: 0, y: 0 });
+  const [toolbarSize, setToolbarSize] = useState({ width: 320, height: 56 });
   const [selectionType, setSelectionType] = useState('image');
   const [selectionQuestion, setSelectionQuestion] = useState('');
 
@@ -508,9 +509,29 @@ function PDFViewer({ file, filename, currentPage, totalPages, onPageChange, onTe
       setShowToolbar(false);
       return;
     }
-    // position toolbar slightly above the selection
+    // compute an adaptive toolbar size and position relative to the page-wrapper
     const rect = pageWrapperRef.current.getBoundingClientRect();
-    setToolbarPos({ x: rect.left + selectionRect.x + selectionRect.w / 2, y: rect.top + selectionRect.y - 8 });
+    // toolbar width should be at least 280, prefer selection width but not larger than wrapper minus padding
+    const PAD = 12;
+    const minW = 280;
+    const maxW = Math.max(200, rect.width - PAD * 2);
+    const desiredW = Math.round(Math.min(maxW, Math.max(minW, selectionRect.w)));
+    const toolbarH = 56;
+
+    // center toolbar above selection; if it would overflow, clamp to wrapper edges
+    let left = Math.round(selectionRect.x + selectionRect.w / 2 - desiredW / 2);
+    if (left < PAD) left = PAD;
+    if (left + desiredW > rect.width - PAD) left = Math.max(PAD, rect.width - PAD - desiredW);
+
+    // attempt to place above selection; if not enough space, place below
+    let top = Math.round(selectionRect.y - toolbarH - 8);
+    if (top < PAD) {
+      top = Math.round(selectionRect.y + selectionRect.h + 8);
+    }
+
+    // toolbarPos is relative to wrapper; we'll render it with position:absolute inside the wrapper
+    setToolbarSize({ width: desiredW, height: toolbarH });
+    setToolbarPos({ x: left, y: top });
     setShowToolbar(true);
   };
 
@@ -677,9 +698,10 @@ function PDFViewer({ file, filename, currentPage, totalPages, onPageChange, onTe
 
                     {/* Selection toolbar */}
                     {showToolbar && (
+                      // Render toolbar as absolute positioned element inside the page-wrapper so it adapts to the pdf panel
                       <div
                         className="selection-toolbar"
-                        style={{ position: 'fixed', left: toolbarPos.x + 'px', top: toolbarPos.y + 'px', zIndex: 120 }}
+                        style={{ position: 'absolute', left: toolbarPos.x + 'px', top: toolbarPos.y + 'px', zIndex: 120, width: toolbarSize.width + 'px' }}
                         onClick={(e) => e.stopPropagation()}
                       >
                         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -688,8 +710,8 @@ function PDFViewer({ file, filename, currentPage, totalPages, onPageChange, onTe
                             <option value="table">Table</option>
                             <option value="graph">Graph</option>
                           </select>
-                          <input placeholder="Ask a question (optional)" value={selectionQuestion} onChange={e => setSelectionQuestion(e.target.value)} style={{ minWidth: 220 }} />
-                          <button onClick={submitSelection}>Ask LLM</button>
+                          <input placeholder="Ask a question (optional)" value={selectionQuestion} onChange={e => setSelectionQuestion(e.target.value)} style={{ width: Math.max(120, toolbarSize.width - 220) }} />
+                          <button onClick={submitSelection}>Analyze</button>
                           <button onClick={() => { setSelectionRect(null); setShowToolbar(false); setSelectionMode(false); }}>Cancel</button>
                         </div>
                       </div>

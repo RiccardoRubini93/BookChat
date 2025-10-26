@@ -25,12 +25,15 @@
   border-radius: 8px;
   box-shadow: 0 6px 18px rgba(0,0,0,0.12);
   border: 1px solid rgba(0,0,0,0.06);
-  transform: translate(-50%, -100%);
+  transform: none; /* compute position in JS so avoid CSS centering transforms that can overflow */
   display: flex;
   gap: 8px;
   align-items: center;
   font-size: 13px;
   z-index: 120;
+  box-sizing: border-box;
+  max-width: calc(100% - 24px); /* ensure toolbar never overflows its page-wrapper */
+  left: 0;
 }
 
 .selection-toolbar select,
