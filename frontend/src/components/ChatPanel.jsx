@@ -52,7 +52,8 @@ const ChatPanel = forwardRef(({ currentPage, highlights = [], onJumpToHighlight,
     }
     try {
       const res = await axios.get(`${API_URL}/api/chats`, { params: { filename } });
-      setMessages(res.data?.messages || []);
+      const msgs = (res.data?.messages || []).map(m => ({ ...m, content: convertFormulasToLatex(m.content) }));
+      setMessages(msgs);
     } catch (err) {
       console.warn('Failed to load chats for', filename, err);
       setMessages([]);
@@ -78,6 +79,62 @@ const ChatPanel = forwardRef(({ currentPage, highlights = [], onJumpToHighlight,
     window.addEventListener('chatUpdated', handler);
     return () => window.removeEventListener('chatUpdated', handler);
   }, [filename]);
+
+  // Convert vision-model-style formula tokens into LaTeX inline math ($...$)
+  // Example: transforms `( \rho )` or `( l_1 )` into `$\rho$` and `$l_1$` so remark-math + rehype-katex will render.
+  const convertFormulasToLatex = (text) => {
+    if (!text || typeof text !== 'string') return text;
+    let t = text;
+    try {
+      // Convert explicit LaTeX delimiters into KaTeX-friendly forms:
+      // \[ ... \] -> $$ ... $$  (display math)
+      t = t.replace(/\\\[([\s\S]*?)\\\]/g, (m, inner) => `$$${inner.trim()}$$`);
+
+      // \( ... \) -> $ ... $  (inline math)
+      t = t.replace(/\\\(\s*([\s\S]*?)\s*\\\)/g, (m, inner) => `$${inner.trim()}$`);
+
+      // Convert any bracketed LaTeX block like: [ \frac{...} ] (even when embedded in text)
+      // into display math $$...$$ so KaTeX will render it. This runs before inline parenthesis conversion.
+      t = t.replace(/\[\s*([^\]]*\\[a-zA-Z]+[^\]]*)\s*\]/g, (m, inner) => {
+        return `$$${inner.trim()}$$`;
+      });
+
+      // Replace parenthesized tokens that contain backslash (\), underscore (_), or caret (^) with inline math
+      t = t.replace(/\(\s*([^()]{1,80}[_\^\\][^()]*)\s*\)/g, (m, p1) => {
+        // clean whitespace inside
+        const inner = p1.trim();
+        return `$${inner}$`;
+      });
+
+      // Also wrap common LaTeX commands that may appear without parentheses, e.g. \rho, \epsilon
+      // Avoid double-wrapping if already inside $...$
+      t = t.replace(/(^|[^$])((?:\\[a-zA-Z]+))(?![^$]*\$)/g, (m, before, cmd) => {
+        // if already preceded by a $ then skip
+        if (before && before.endsWith('$')) return m;
+        return `${before}$${cmd}$`;
+      });
+    } catch (err) {
+      return text;
+    }
+    return t;
+  };
+
+  // Remove surrounding $ or $$ delimiters if present and trim whitespace
+  const stripMathDelimiters = (s) => {
+    if (!s || typeof s !== 'string') return s || '';
+    let t = s.trim();
+    // remove wrapping $$ ... $$
+    if (t.startsWith('$$') && t.endsWith('$$')) {
+      t = t.slice(2, -2).trim();
+      return t;
+    }
+    // remove wrapping single $ ... $
+    if (t.startsWith('$') && t.endsWith('$')) {
+      t = t.slice(1, -1).trim();
+      return t;
+    }
+    return t;
+  };
 
   // Listen for visual selection lifecycle events (from PDFViewer)
   useEffect(() => {
@@ -115,11 +172,12 @@ const ChatPanel = forwardRef(({ currentPage, highlights = [], onJumpToHighlight,
       const content = data.content || (data.message && data.message.content) || null;
       if (!content) return;
       // avoid duplicating similar content
-      const exists = messages.some(m => (m.content || '').trim() === (content || '').trim());
+      const processed = convertFormulasToLatex(content);
+      const exists = messages.some(m => (m.content || '').trim() === (processed || '').trim());
       if (!exists) {
         const assistantMsg = {
           role: 'assistant',
-          content,
+          content: processed,
           timestamp: new Date().toISOString(),
         };
         setMessages(prev => [...prev, assistantMsg]);
@@ -137,7 +195,8 @@ const ChatPanel = forwardRef(({ currentPage, highlights = [], onJumpToHighlight,
   const makeClientId = () => `${Date.now()}-${Math.random().toString(36).slice(2,9)}`;
 
   const replaceMessageByClientId = (clientId, serverMsg) => {
-    setMessages(prev => prev.map(m => (m.clientId && m.clientId === clientId) ? serverMsg : m));
+    const processed = serverMsg && serverMsg.content ? { ...serverMsg, content: convertFormulasToLatex(serverMsg.content) } : serverMsg;
+    setMessages(prev => prev.map(m => (m.clientId && m.clientId === clientId) ? processed : m));
   };
 
   const handleSummarize = async () => {
@@ -172,7 +231,7 @@ const ChatPanel = forwardRef(({ currentPage, highlights = [], onJumpToHighlight,
       const assistantMsg = response.data;
       // append assistant message locally with a temp clientId so we can replace it with server version
       const assistantClientId = makeClientId();
-      const localAssistant = { ...(assistantMsg || {}), clientId: assistantClientId };
+  const localAssistant = { ...(assistantMsg || {}), clientId: assistantClientId, content: convertFormulasToLatex(assistantMsg?.content || '') };
       setMessages(prev => [...prev, localAssistant]);
       // persist assistant message and replace local copy with server-returned message
       if (filename) {
@@ -234,7 +293,7 @@ const ChatPanel = forwardRef(({ currentPage, highlights = [], onJumpToHighlight,
 
       const assistantMsg = response.data;
       const assistantClientId = makeClientId();
-      const localAssistant = { ...(assistantMsg || {}), clientId: assistantClientId };
+  const localAssistant = { ...(assistantMsg || {}), clientId: assistantClientId, content: convertFormulasToLatex(assistantMsg?.content || '') };
       setMessages(prev => [...prev, localAssistant]);
       if (filename) {
         try {
@@ -459,11 +518,11 @@ const ChatPanel = forwardRef(({ currentPage, highlights = [], onJumpToHighlight,
       });
 
       // attach highlightId to assistant response if present
-      const resp = response.data;
-      if (highlightId) resp.highlightId = highlightId;
-      const assistantClientId = makeClientId();
-      const localResp = { ...resp, clientId: assistantClientId };
-      setMessages(prev => [...prev, localResp]);
+  const resp = response.data;
+  if (highlightId) resp.highlightId = highlightId;
+  const assistantClientId = makeClientId();
+  const localResp = { ...resp, clientId: assistantClientId, content: convertFormulasToLatex(resp?.content || '') };
+  setMessages(prev => [...prev, localResp]);
       if (filename) {
         try {
           const form = new FormData();
@@ -568,6 +627,27 @@ const ChatPanel = forwardRef(({ currentPage, highlights = [], onJumpToHighlight,
                         URL.revokeObjectURL(url);
                       }}>Download CSV</button>
                     </div>
+                  </div>
+                )}
+
+                {/* Structured formulas (if backend returned structured.formulas) - render as LaTeX display math */}
+                {message.structured && message.structured.formulas && Array.isArray(message.structured.formulas) && (
+                  <div className="structured-formulas" style={{ marginTop: 12, border: '1px solid #eee', padding: 10, borderRadius: 6, background: '#fffdf7' }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>Extracted formulas</div>
+                    {message.structured.formulas.map((f, idx) => (
+                      <div key={idx} style={{ marginBottom: 10 }}>
+                        <div style={{ fontSize: 12, color: '#444', marginBottom: 6, fontWeight: 600 }}>{f.variable || `formula ${idx+1}`}</div>
+                        <div style={{ background: 'transparent', padding: 6 }}>
+                          {(() => {
+                            const raw = (f.expression || f.latex || f.expr || '').toString();
+                            const clean = stripMathDelimiters(raw);
+                            return (
+                              <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>{`$$${clean}$$`}</ReactMarkdown>
+                            );
+                          })()}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 )}
 
