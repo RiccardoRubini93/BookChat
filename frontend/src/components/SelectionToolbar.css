@@ -1,0 +1,68 @@
+/* Basic styles for selection overlay, rectangle and toolbar used by PDFViewer */
+
+.selection-overlay {
+  /* overlay sits above the page content to capture pointer events when selection mode is active */
+  pointer-events: none;
+}
+
+.selection-overlay.active {
+  pointer-events: auto;
+  cursor: crosshair;
+}
+
+.selection-rect {
+  box-sizing: border-box;
+  border: 2px dashed rgba(0, 120, 212, 0.95);
+  background: rgba(0, 120, 212, 0.06);
+  z-index: 60;
+  pointer-events: none;
+}
+
+.selection-toolbar {
+  background: #fff;
+  color: #111;
+  padding: 8px 10px;
+  border-radius: 8px;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.12);
+  border: 1px solid rgba(0,0,0,0.06);
+  transform: translate(-50%, -100%);
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 13px;
+  z-index: 120;
+}
+
+.selection-toolbar select,
+.selection-toolbar input {
+  font-size: 13px;
+  padding: 6px 8px;
+  border: 1px solid rgba(0,0,0,0.08);
+  border-radius: 6px;
+}
+
+.selection-toolbar button {
+  background: #0078d4;
+  color: #fff;
+  border: none;
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.selection-toolbar button[disabled] {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+@media (max-width: 640px) {
+  .selection-toolbar {
+    left: 8px !important;
+    right: 8px !important;
+    transform: none;
+    top: auto !important;
+    bottom: 12px !important;
+    justify-content: space-between;
+  }
+  .selection-toolbar input { flex: 1 1 auto; min-width: 80px; }
+}

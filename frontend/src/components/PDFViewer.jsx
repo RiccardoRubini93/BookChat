@@ -3,6 +3,11 @@ import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/esm/Page/AnnotationLayer.css';
 import 'react-pdf/dist/esm/Page/TextLayer.css';
 import './PDFViewer.css';
+import axios from 'axios';
+import './SelectionToolbar.css';
+
+// Base API URL (set via Vite env VITE_API_URL). Falls back to empty so relative paths still work in some setups.
+const API_BASE = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_URL) ? import.meta.env.VITE_API_URL : '';
 
 // Set up the worker
 pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
@@ -37,7 +42,7 @@ function PDFViewer({ file, filename, currentPage, totalPages, onPageChange, onTe
     if (!filename) return;
     const load = async () => {
       try {
-        const res = await fetch(`/api/notes?filename=${encodeURIComponent(filename)}`);
+        const res = await fetch(`${API_BASE}/api/notes?filename=${encodeURIComponent(filename)}`);
         if (!res.ok) throw new Error('Failed to fetch notes');
         const json = await res.json();
         // server returns { notes: { page: {text,x,y} } }
@@ -68,7 +73,7 @@ function PDFViewer({ file, filename, currentPage, totalPages, onPageChange, onTe
   // include optional sizing for editor popup
   if (note.widthPercent !== undefined) form.append('widthPercent', String(note.widthPercent));
   if (note.heightPercent !== undefined) form.append('heightPercent', String(note.heightPercent));
-      const res = await fetch('/api/notes', { method: 'POST', body: form });
+  const res = await fetch(`${API_BASE}/api/notes`, { method: 'POST', body: form });
       if (!res.ok) throw new Error('Failed to save note');
       return true;
     } catch (err) {
@@ -80,7 +85,7 @@ function PDFViewer({ file, filename, currentPage, totalPages, onPageChange, onTe
   const deleteNoteFromServer = async (page) => {
     if (!filename) return;
     try {
-      const res = await fetch(`/api/notes?filename=${encodeURIComponent(filename)}&page=${page}`, { method: 'DELETE' });
+      const res = await fetch(`${API_BASE}/api/notes?filename=${encodeURIComponent(filename)}&page=${page}`, { method: 'DELETE' });
       if (!res.ok) throw new Error('Failed to delete note');
       return true;
     } catch (err) {
@@ -448,6 +453,14 @@ function PDFViewer({ file, filename, currentPage, totalPages, onPageChange, onTe
   const currentNote = notes[currentPage] || { x: 85, y: 10 };
   const [pageDims, setPageDims] = useState(null); // {width, height}
   const [fitMode, setFitMode] = useState('none'); // 'none' | 'fit-width' | 'fit-page'
+  // Selection mode states
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [isSelecting, setIsSelecting] = useState(false);
+  const [selectionRect, setSelectionRect] = useState(null); // {x,y,w,h} in page-wrapper coords
+  const [showToolbar, setShowToolbar] = useState(false);
+  const [toolbarPos, setToolbarPos] = useState({ x: 0, y: 0 });
+  const [selectionType, setSelectionType] = useState('image');
+  const [selectionQuestion, setSelectionQuestion] = useState('');
 
   // Called when the Page loads to obtain original dimensions
   const onPageLoadSuccess = (pdfPage) => {
@@ -456,6 +469,127 @@ function PDFViewer({ file, filename, currentPage, totalPages, onPageChange, onTe
       setPageDims({ width: viewport.width, height: viewport.height });
     } catch (err) {
       // ignore
+    }
+  };
+
+  // Pointer handlers for rectangular selection overlay
+  const onPointerDownSelection = (e) => {
+    if (!selectionMode) return;
+    if (!pageWrapperRef.current) return;
+    e.preventDefault();
+    const rect = pageWrapperRef.current.getBoundingClientRect();
+    const startX = e.clientX - rect.left;
+    const startY = e.clientY - rect.top;
+    setIsSelecting(true);
+    setSelectionRect({ x: startX, y: startY, w: 0, h: 0 });
+  };
+
+  const onPointerMoveSelection = (e) => {
+    if (!isSelecting || !pageWrapperRef.current) return;
+    const rect = pageWrapperRef.current.getBoundingClientRect();
+    const mx = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
+    const my = Math.max(0, Math.min(rect.height, e.clientY - rect.top));
+    setSelectionRect(prev => {
+      if (!prev) return prev;
+      const x = Math.min(prev.x, mx);
+      const y = Math.min(prev.y, my);
+      const w = Math.abs(mx - prev.x);
+      const h = Math.abs(my - prev.y);
+      return { x, y, w, h };
+    });
+  };
+
+  const onPointerUpSelection = (e) => {
+    if (!isSelecting) return;
+    setIsSelecting(false);
+    if (!selectionRect || (selectionRect.w < 8 || selectionRect.h < 8)) {
+      // too small, cancel
+      setSelectionRect(null);
+      setShowToolbar(false);
+      return;
+    }
+    // position toolbar slightly above the selection
+    const rect = pageWrapperRef.current.getBoundingClientRect();
+    setToolbarPos({ x: rect.left + selectionRect.x + selectionRect.w / 2, y: rect.top + selectionRect.y - 8 });
+    setShowToolbar(true);
+  };
+
+  // Capture the canvas inside the page wrapper and crop selection, then send to API
+  const submitSelection = async () => {
+    if (!selectionRect || !pageWrapperRef.current) return;
+    if (isSelecting) return;
+    setIsSelecting(true);
+    const tempId = `visual-${Date.now()}`;
+    try {
+      // find canvas rendered by react-pdf inside page wrapper
+      const canvas = pageWrapperRef.current.querySelector('canvas');
+      if (!canvas) throw new Error('Page canvas not found');
+
+      // canvas may be scaled relative to displayed size
+      const canvasRect = canvas.getBoundingClientRect();
+      const scaleX = canvas.width / canvasRect.width;
+      const scaleY = canvas.height / canvasRect.height;
+
+      const sx = Math.max(0, Math.floor(selectionRect.x * scaleX));
+      const sy = Math.max(0, Math.floor(selectionRect.y * scaleY));
+      const sw = Math.max(1, Math.floor(selectionRect.w * scaleX));
+      const sh = Math.max(1, Math.floor(selectionRect.h * scaleY));
+
+      const outCanvas = document.createElement('canvas');
+      outCanvas.width = sw;
+      outCanvas.height = sh;
+      const ctx = outCanvas.getContext('2d');
+      ctx.drawImage(canvas, sx, sy, sw, sh, 0, 0, sw, sh);
+
+      // convert to blob
+      const blob = await new Promise((res) => outCanvas.toBlob(res, 'image/png'));
+
+      // optimistic user message persisted to server
+      if (filename && selectionQuestion) {
+        try {
+          const form = new FormData();
+          form.append('filename', filename);
+          form.append('role', 'user');
+          form.append('content', selectionQuestion);
+          await fetch(`${API_BASE}/api/chats`, { method: 'POST', body: form });
+        } catch (err) {
+          // ignore
+        }
+      }
+
+      const form = new FormData();
+      form.append('file', blob, 'selection.png');
+      form.append('selection_type', selectionType);
+      form.append('question', selectionQuestion || 'Please describe this selection.');
+      if (filename) form.append('filename', filename);
+
+      // notify ChatPanel that a visual request started so it can show a temporary assistant message
+      try { window.dispatchEvent(new CustomEvent('visualRequestStarted', { detail: { tempId, question: selectionQuestion } })); } catch (e) {}
+
+  const res = await axios.post(`${API_BASE}/api/visual/analyze`, form, { headers: { 'Content-Type': 'multipart/form-data' } });
+
+  // Send the raw response to the chat panel so it can append immediately if needed
+  try { window.dispatchEvent(new CustomEvent('visualResponse', { detail: res.data })); } catch (e) {}
+
+  // notify ChatPanel finished
+  try { window.dispatchEvent(new CustomEvent('visualRequestFinished', { detail: { tempId, ok: true } })); } catch (e) {}
+
+  // notify ChatPanel to reload chats (assistant message persisted server-side)
+  try { window.dispatchEvent(new Event('chatUpdated')); } catch (e) {}
+
+      // clear selection UI
+      setSelectionRect(null);
+      setShowToolbar(false);
+      setSelectionMode(false);
+      setSelectionQuestion('');
+    } catch (err) {
+      console.error('Selection submit failed', err);
+      try { window.dispatchEvent(new CustomEvent('visualRequestFinished', { detail: { tempId, ok: false } })); } catch (e) {}
+      setSelectionRect(null);
+      setShowToolbar(false);
+      setSelectionMode(false);
+    } finally {
+      setIsSelecting(false);
     }
   };
 
@@ -513,6 +647,53 @@ function PDFViewer({ file, filename, currentPage, totalPages, onPageChange, onTe
                 renderAnnotationLayer={true}
                 onLoadSuccess={onPageLoadSuccess}
               />
+
+                    {/* Selection overlay handler (covers page-wrapper) */}
+                    <div
+                      className={`selection-overlay ${selectionMode ? 'active' : ''}`}
+                      onPointerDown={onPointerDownSelection}
+                      onPointerMove={onPointerMoveSelection}
+                      onPointerUp={onPointerUpSelection}
+                      style={{ position: 'absolute', left: 0, top: 0, right: 0, bottom: 0 }}
+                    />
+
+                    {/* Draw selection rectangle */}
+                    {selectionRect && (
+                      <div
+                        className="selection-rect"
+                        style={{
+                          position: 'absolute',
+                          left: selectionRect.x + 'px',
+                          top: selectionRect.y + 'px',
+                          width: selectionRect.w + 'px',
+                          height: selectionRect.h + 'px',
+                          border: '2px dashed rgba(0,120,212,0.9)',
+                          background: 'rgba(0,120,212,0.08)',
+                          pointerEvents: 'none',
+                          zIndex: 60,
+                        }}
+                      />
+                    )}
+
+                    {/* Selection toolbar */}
+                    {showToolbar && (
+                      <div
+                        className="selection-toolbar"
+                        style={{ position: 'fixed', left: toolbarPos.x + 'px', top: toolbarPos.y + 'px', zIndex: 120 }}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                          <select value={selectionType} onChange={e => setSelectionType(e.target.value)}>
+                            <option value="image">Image</option>
+                            <option value="table">Table</option>
+                            <option value="graph">Graph</option>
+                          </select>
+                          <input placeholder="Ask a question (optional)" value={selectionQuestion} onChange={e => setSelectionQuestion(e.target.value)} style={{ minWidth: 220 }} />
+                          <button onClick={submitSelection}>Ask LLM</button>
+                          <button onClick={() => { setSelectionRect(null); setShowToolbar(false); setSelectionMode(false); }}>Cancel</button>
+                        </div>
+                      </div>
+                    )}
 
               {/* Note bubble (positioned in percent relative to page-wrapper) */}
               <div
@@ -650,6 +831,18 @@ function PDFViewer({ file, filename, currentPage, totalPages, onPageChange, onTe
           <button className="nav-button" onClick={() => { setFitMode('fit-width'); }} title="Fit width">Fit width</button>
           <button className="nav-button" onClick={() => { setFitMode('fit-page'); }} title="Fit page">Fit page</button>
           <button className="nav-button" onClick={() => { setFitMode('none'); setPageWidth(600); }} title="Reset">Reset</button>
+        </div>
+
+        {/* Selection toggle button */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button
+            className={`nav-button${selectionMode ? ' active' : ''}`}
+            onClick={() => setSelectionMode(m => !m)}
+            title={selectionMode ? 'Exit selection mode' : 'Enter selection mode'}
+            style={{ background: selectionMode ? '#0b5ed7' : undefined, color: selectionMode ? '#fff' : undefined }}
+          >
+            {selectionMode ? 'Selecting...' : 'Select'}
+          </button>
         </div>
 
         <button 

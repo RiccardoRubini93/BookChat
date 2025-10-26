@@ -12,6 +12,10 @@ import uuid
 from datetime import datetime
 from openai import OpenAI
 from dotenv import load_dotenv
+import base64
+import io
+from PIL import Image
+import traceback
 
 # Load environment variables
 load_dotenv()
@@ -338,6 +342,10 @@ async def root():
 @app.post("/api/upload")
 async def upload_pdf(file: UploadFile = File(...)):
     """Upload a PDF file and prepare it for chat."""
+    try:
+        print(f"[upload_pdf] incoming upload filename={file.filename} content_type={file.content_type}")
+    except Exception:
+        pass
     if not file.filename.endswith('.pdf'):
         raise HTTPException(status_code=400, detail="Only PDF files are allowed")
     
@@ -368,7 +376,214 @@ async def upload_pdf(file: UploadFile = File(...)):
         })
     
     except Exception as e:
+        # Log full traceback to help debugging inside containers
+        try:
+            tb = traceback.format_exc()
+            print(f"[upload_pdf] Exception: {e}\n{tb}")
+        except Exception:
+            print(f"[upload_pdf] Exception: {e}")
         raise HTTPException(status_code=500, detail=f"Error uploading file: {str(e)}")
+
+
+@app.post("/api/visual/analyze")
+async def visual_analyze(
+    file: UploadFile = File(...),
+    selection_type: str = Form(...),
+    question: Optional[str] = Form(None),
+    filename: Optional[str] = Form(None),
+):
+    """Analyze an uploaded image selection using a multimodal LLM.
+
+    Expects multipart/form-data with:
+    - file: image/png or image/jpeg
+    - selection_type: 'image' | 'table' | 'graph'
+    - question: optional question text
+    - filename: optional PDF filename to persist chat message against
+    """
+    allowed = {"image", "table", "graph"}
+    if selection_type not in allowed:
+        raise HTTPException(status_code=400, detail=f"selection_type must be one of {allowed}")
+
+    # read file bytes
+    try:
+        data = await file.read()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to read uploaded file: {str(e)}")
+
+    # Optionally resize large images to prevent huge uploads to the LLM
+    try:
+        img = Image.open(io.BytesIO(data))
+        img = img.convert('RGB')
+        max_dim = 2048
+        if max(img.size) > max_dim:
+            img.thumbnail((max_dim, max_dim))
+        buf = io.BytesIO()
+        img.save(buf, format='PNG')
+        img_bytes = buf.getvalue()
+    except Exception:
+        # fallback to raw bytes
+        img_bytes = data
+
+    b64 = base64.b64encode(img_bytes).decode('ascii')
+
+    # Compose a prompt for the multimodal model
+    q = question or f"Please describe the {selection_type} and provide key observations."
+    prompt = (
+        f"You are a helpful assistant. Analyze the provided {selection_type}.\n"
+        f"Context: filename={filename or 'unknown'}.\n"
+        f"Question: {q}\n"
+        "Provide a concise answer for a human-readable chat message. If you can extract structured data (CSV for tables, axes for graphs), include it in a JSON block labelled `structured`."
+    )
+
+    model = os.getenv('OPENAI_MULTIMODAL_MODEL') or os.getenv('OPENAI_VISION_MODEL') or 'gpt-4o-mini-vision'
+
+    try:
+        # Debug: print model/payload sizes
+        try:
+            print(f"[visual_analyze] calling multimodal model={model} prompt_len={len(prompt)} image_b64_len={len(b64)}")
+        except Exception:
+            pass
+
+        # Try to call the multimodal responses endpoint with an image payload
+        try:
+            # The Responses API expects images via an image_url field. Use a data URL with the base64 payload.
+            image_data_url = f"data:image/png;base64,{b64}"
+            resp = client.responses.create(
+                model=model,
+                input=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "input_text", "text": prompt},
+                            {"type": "input_image", "image_url": image_data_url}
+                        ]
+                    }
+                ],
+            )
+        except Exception as e_inner:
+            # Print full traceback to logs for debugging
+            tb = traceback.format_exc()
+            print(f"[visual_analyze] multimodal call exception: {e_inner}\n{tb}")
+
+            # If the OpenAI client doesn't support the newer 'responses' API, offer a fallback or a clear error.
+            msg_text = str(e_inner)
+            if isinstance(e_inner, AttributeError) or "has no attribute 'responses'" in msg_text:
+                # Optionally allow a fallback to the older chat completions API if configured
+                if os.getenv('OPENAI_USE_CHAT_COMPLETIONS', '').lower() in ('1', 'true', 'yes'):
+                    try:
+                        fallback_model = os.getenv('OPENAI_CHAT_MODEL') or 'gpt-4o-mini'
+                        print(f"[visual_analyze] falling back to chat.completions with model={fallback_model}")
+                        chat_resp = client.chat.completions.create(
+                            model=fallback_model,
+                            messages=[
+                                {"role": "system", "content": "You are a helpful assistant that analyzes image descriptions. The actual image bytes are not available to this model; the caller has provided an accompanying textual description that should be used as context."},
+                                {"role": "user", "content": prompt}
+                            ],
+                            temperature=0.7,
+                            max_tokens=500
+                        )
+                        # extract text from chat response
+                        try:
+                            assistant_text = chat_resp.choices[0].message.content
+                        except Exception:
+                            assistant_text = str(chat_resp)
+                    except Exception as e_fb:
+                        tb2 = traceback.format_exc()
+                        print(f"[visual_analyze] fallback chat.completions failed: {e_fb}\n{tb2}")
+                        raise HTTPException(status_code=500, detail=f"Multimodal 'responses' API not available and chat fallback failed: {str(e_fb)}")
+                else:
+                    # Advise the developer to upgrade the OpenAI SDK to one that supports the responses API.
+                    hint = (
+                        "Backend OpenAI client does not support the 'responses' API. "
+                        "Upgrade the 'openai' Python package to a version that provides the Responses API (e.g. `pip install --upgrade openai`) "
+                        "and restart the backend, or set environment variable OPENAI_USE_CHAT_COMPLETIONS=1 to use the older chat completions API as a fallback (note: chat completions cannot accept image bytes)."
+                    )
+                    print(f"[visual_analyze] {hint}")
+                    raise HTTPException(status_code=501, detail=hint)
+            else:
+                # Generic error
+                raise HTTPException(status_code=500, detail=f"Failed to call multimodal model: {str(e_inner)}")
+    except Exception as e:
+        # If calling the multimodal model fails, return an error to the client with details
+        print(f"[visual_analyze] multimodal call failed (outer): {e}")
+        tb = traceback.format_exc()
+        print(tb)
+        raise HTTPException(status_code=500, detail=f"Failed to call multimodal model: {str(e)}")
+
+    # Try to extract assistant text from the response
+    assistant_text = None
+    try:
+        # prefer the convenient attribute if present
+        assistant_text = getattr(resp, 'output_text', None)
+        if not assistant_text:
+            # traverse the structured output
+            out = getattr(resp, 'output', None) or resp
+            # debug print of raw response (trimmed)
+            try:
+                print(f"[visual_analyze] raw response repr: {repr(out)[:1000]}")
+            except Exception:
+                pass
+            if isinstance(out, list):
+                for item in out:
+                    contents = item.get('content') if isinstance(item, dict) else getattr(item, 'content', None)
+                    if not contents:
+                        continue
+                    for c in contents:
+                        if isinstance(c, dict) and c.get('type') == 'output_text' and c.get('text'):
+                            assistant_text = c.get('text')
+                            break
+                    if assistant_text:
+                        break
+    except Exception:
+        assistant_text = None
+
+    if not assistant_text:
+        # As a fallback, stringify the response
+        try:
+            assistant_text = str(resp)
+        except Exception:
+            assistant_text = 'Received empty response from model.'
+
+    # Debug log
+    try:
+        print(f"[visual_analyze] selection_type={selection_type} filename={filename} assistant_text_preview={assistant_text[:200]}")
+    except Exception:
+        pass
+
+    # Persist assistant message to chat file if filename provided
+    persisted_msg = None
+    if filename:
+        try:
+            # Build message object
+            now_iso = datetime.utcnow().isoformat() + 'Z'
+            msg = {
+                "id": str(uuid.uuid4()),
+                "role": 'assistant',
+                "content": assistant_text,
+                "timestamp": now_iso,
+            }
+            chat_file = chats_file_for(filename)
+            messages = []
+            if chat_file.exists():
+                with open(chat_file, 'r') as f:
+                    messages = json.load(f)
+            messages.append(msg)
+            with open(chat_file, 'w') as f:
+                json.dump(messages, f)
+            persisted_msg = msg
+            print(f"[visual_analyze] persisted assistant message for {filename}, id={msg['id']}")
+        except Exception as e:
+            print(f"[visual_analyze] failed to persist assistant message: {e}")
+            # don't fail the whole request if persisting chat fails
+            persisted_msg = None
+
+    # Return assistant text and optional persisted message
+    return JSONResponse(content={
+        "role": "assistant",
+        "content": assistant_text,
+        "message": persisted_msg,
+        "metadata": {"model": model}
+    })
 
 
 @app.get("/api/pdf/info")

@@ -18,6 +18,8 @@ const ChatPanel = forwardRef(({ currentPage, highlights = [], onJumpToHighlight,
   const messagesContainerRef = useRef(null);
   const [inputValue, setInputValue] = useState('');
   const [loading, setLoading] = useState(false);
+  const [visualLoading, setVisualLoading] = useState(false);
+  const visualTempMapRef = useRef({}); // tempId -> clientId mapping for visual requests
   const [mode, setMode] = useState('ask'); // 'summarize' or 'ask'
   const messagesEndRef = useRef(null);
 
@@ -42,25 +44,93 @@ const ChatPanel = forwardRef(({ currentPage, highlights = [], onJumpToHighlight,
   }, [messages]);
 
   // Load persisted chat for the current filename
+  // Load persisted chat for the current filename
+  const loadChats = async () => {
+    if (!filename) {
+      setMessages([]);
+      return;
+    }
+    try {
+      const res = await axios.get(`${API_URL}/api/chats`, { params: { filename } });
+      setMessages(res.data?.messages || []);
+    } catch (err) {
+      console.warn('Failed to load chats for', filename, err);
+      setMessages([]);
+    }
+  };
+
   useEffect(() => {
     let cancelled = false;
-    const loadChats = async () => {
-      if (!filename) {
-        setMessages([]);
-        return;
+    // call loadChats but avoid state update if unmounted
+    const run = async () => {
+      if (cancelled) return;
+      await loadChats();
+    };
+    run();
+    return () => { cancelled = true; };
+  }, [filename]);
+
+  // Refresh chat when other components notify of updates (e.g., visual analyze)
+  useEffect(() => {
+    const handler = () => {
+      loadChats().catch(err => console.warn('Failed to reload chats on event', err));
+    };
+    window.addEventListener('chatUpdated', handler);
+    return () => window.removeEventListener('chatUpdated', handler);
+  }, [filename]);
+
+  // Listen for visual selection lifecycle events (from PDFViewer)
+  useEffect(() => {
+    const onStart = (e) => {
+      const tempId = e?.detail?.tempId || `visual-${Date.now()}`;
+      const question = e?.detail?.question || '';
+      const clientId = makeClientId();
+      visualTempMapRef.current[tempId] = clientId;
+      // append temporary assistant message
+      const tempMsg = { role: 'assistant', content: 'Thinking...', clientId, timestamp: new Date().toISOString() };
+      setMessages(prev => [...prev, tempMsg]);
+      setVisualLoading(true);
+    };
+
+    const onFinish = (e) => {
+      const tempId = e?.detail?.tempId;
+      const clientId = tempId ? visualTempMapRef.current[tempId] : null;
+      if (clientId) {
+        // remove temporary assistant message
+        setMessages(prev => prev.filter(m => !(m.clientId && m.clientId === clientId)));
+        delete visualTempMapRef.current[tempId];
       }
-      try {
-        const res = await axios.get(`${API_URL}/api/chats`, { params: { filename } });
-        if (!cancelled) {
-          setMessages(res.data?.messages || []);
-        }
-      } catch (err) {
-        console.warn('Failed to load chats for', filename, err);
-        if (!cancelled) setMessages([]);
+      setVisualLoading(false);
+      // reload persisted chats from server
+      loadChats().catch(err => console.warn('Failed to reload chats after visual finish', err));
+    };
+
+    window.addEventListener('visualRequestStarted', onStart);
+    window.addEventListener('visualRequestFinished', onFinish);
+    // immediate response fallback: append assistant message if backend returned content
+    const onResponse = (e) => {
+      const data = e?.detail;
+      if (!data) return;
+      // data may include { role, content, message, metadata }
+      const content = data.content || (data.message && data.message.content) || null;
+      if (!content) return;
+      // avoid duplicating similar content
+      const exists = messages.some(m => (m.content || '').trim() === (content || '').trim());
+      if (!exists) {
+        const assistantMsg = {
+          role: 'assistant',
+          content,
+          timestamp: new Date().toISOString(),
+        };
+        setMessages(prev => [...prev, assistantMsg]);
       }
     };
-    loadChats();
-    return () => { cancelled = true; };
+    window.addEventListener('visualResponse', onResponse);
+    return () => {
+      window.removeEventListener('visualRequestStarted', onStart);
+      window.removeEventListener('visualRequestFinished', onFinish);
+      window.removeEventListener('visualResponse', onResponse);
+    };
   }, [filename]);
 
   // helper to create client-side id for optimistic messages
@@ -480,6 +550,27 @@ const ChatPanel = forwardRef(({ currentPage, highlights = [], onJumpToHighlight,
                   {message.content}
                 </ReactMarkdown>
 
+                {/* Structured table preview (if backend returned structured.csv) */}
+                {message.structured && message.structured.csv && (
+                  <div className="structured-csv" style={{ marginTop: 8, border: '1px solid #eee', padding: 8, borderRadius: 6, background: '#fafafa' }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Extracted table (CSV)</div>
+                    <pre style={{ maxHeight: 160, overflow: 'auto', whiteSpace: 'pre-wrap', fontSize: 12 }}>{message.structured.csv.split('\n').slice(0, 10).join('\n')}</pre>
+                    <div style={{ marginTop: 8 }}>
+                      <button className="msg-btn" onClick={() => {
+                        const blob = new Blob([message.structured.csv], { type: 'text/csv' });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = `${filename || 'extracted-table'}.csv`;
+                        document.body.appendChild(a);
+                        a.click();
+                        a.remove();
+                        URL.revokeObjectURL(url);
+                      }}>Download CSV</button>
+                    </div>
+                  </div>
+                )}
+
                 {/* Quote / thumbnail preview (UI-only): render when backend includes page/thumbnail/quote fields */}
                 {(message.page || message.thumbnailUrl || message.quote) && (
                   <div
@@ -519,7 +610,7 @@ const ChatPanel = forwardRef(({ currentPage, highlights = [], onJumpToHighlight,
             </div>
           ))
         }
-        {loading && (
+        {(loading || visualLoading) && (
           <div className="message assistant">
             <div className="message-content loading-message">
               Thinking...

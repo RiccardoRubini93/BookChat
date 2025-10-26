@@ -10,6 +10,11 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - BACKEND_PORT=${BACKEND_PORT:-8000}
       - BACKEND_HOST=${BACKEND_HOST:-0.0.0.0}
+      # Quick developer fallback: if the installed OpenAI SDK doesn't support the Responses API,
+      # setting this to 1 will make the backend use the older chat completions API (text-only)
+      - OPENAI_USE_CHAT_COMPLETIONS=1
+      # Specify your multimodal model name via environment, e.g. OPENAI_MULTIMODAL_MODEL=gpt-4o-mini-vision
+      - OPENAI_MULTIMODAL_MODEL=${OPENAI_MULTIMODAL_MODEL}
     volumes:
       - ./backend:/app
       - backend-uploads:/app/uploads
@@ -25,6 +30,7 @@ services:
     ports:
       - "3002:3000"
     environment:
+      # For the browser (client) the backend is reachable at localhost:8000 on the host machine
       - VITE_API_URL=http://localhost:8000
     volumes:
       - ./frontend:/app
