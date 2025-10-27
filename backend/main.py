@@ -20,6 +20,12 @@ import traceback
 # Load environment variables
 load_dotenv()
 
+# Configurable token limits (can be set via environment variables)
+# - OPENAI_MAX_TOKENS controls `max_tokens` for chat completions fallback and older chat calls
+# - OPENAI_MAX_OUTPUT_TOKENS controls `max_output_tokens` for the Responses API
+DEFAULT_MAX_TOKENS = int(os.getenv("OPENAI_MAX_TOKENS", "2048"))
+DEFAULT_MAX_OUTPUT_TOKENS = int(os.getenv("OPENAI_MAX_OUTPUT_TOKENS", "2048"))
+
 # Initialize FastAPI app
 app = FastAPI(title="BookChat API", version="1.0.0")
 
@@ -459,6 +465,8 @@ async def visual_analyze(
                         ]
                     }
                 ],
+                # Allow configuring the maximum output tokens for the Responses API
+                max_output_tokens=DEFAULT_MAX_OUTPUT_TOKENS,
             )
         except Exception as e_inner:
             # Print full traceback to logs for debugging
@@ -479,8 +487,8 @@ async def visual_analyze(
                                 {"role": "system", "content": "You are a helpful assistant that analyzes image descriptions. The actual image bytes are not available to this model; the caller has provided an accompanying textual description that should be used as context."},
                                 {"role": "user", "content": prompt}
                             ],
-                            temperature=0.7,
-                            max_tokens=500
+                                        temperature=0.7,
+                                        max_tokens=DEFAULT_MAX_TOKENS
                         )
                         # extract text from chat response
                         try:
@@ -686,7 +694,7 @@ async def summarize_page(request: SummarizeRequest):
                 }
             ],
             temperature=0.7,
-            max_tokens=500
+            max_tokens=DEFAULT_MAX_TOKENS
         )
         
         summary = response.choices[0].message.content
@@ -730,7 +738,7 @@ async def analyze_page(request: AnalyzeRequest):
                 }
             ],
             temperature=0.7,
-            max_tokens=800
+            max_tokens=DEFAULT_MAX_TOKENS
         )
         
         analysis = response.choices[0].message.content
@@ -785,7 +793,7 @@ async def text_operation(request: TextOperationRequest):
                 }
             ],
             temperature=0.7,
-            max_tokens=500
+            max_tokens=DEFAULT_MAX_TOKENS
         )
         
         result = response.choices[0].message.content
